@@ -23,7 +23,47 @@ type Runtime struct {
 
 type Plugin struct {
 	Runtime *Runtime
-	Module  api.Module
+	Modules []api.Module
+	Timeout uint
+}
+
+type Wasm interface {
+	ToWasmData() (WasmData, error)
+}
+
+type WasmData struct {
+	Data []byte `json:"data"`
+	Hash string `json:"hash,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type WasmFile struct {
+	Path string `json:"path"`
+	Hash string `json:"hash,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type WasmUrl struct {
+	Url     string            `json:"url"`
+	Hash    string            `json:"hash,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Name    string            `json:"name,omitempty"`
+	Method  string            `json:"method,omitempty"`
+}
+
+func (d WasmData) ToWasmData() (WasmData, error) {
+	return d, nil
+}
+
+type Manifest struct {
+	Wasm   []Wasm `json:"wasm"`
+	Memory struct {
+		MaxPages uint32 `json:"max_pages,omitempty"`
+	} `json:"memory,omitempty"`
+	Config       map[string]string `json:"config,omitempty"`
+	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
+	AllowedPaths map[string]string `json:"allowed_paths,omitempty"`
+	Timeout      uint              `json:"timeout_ms,omitempty"`
 }
 
 func NewRuntime(ctx context.Context, rconfig ...wazero.RuntimeConfig) (Runtime, error) {
@@ -55,12 +95,27 @@ func (c Runtime) WithWasi() Runtime {
 	return c
 }
 
-func (c *Runtime) NewPlugin(src []byte, config wazero.ModuleConfig) (Plugin, error) {
-	m, err := c.Wazero.InstantiateWithConfig(c.ctx, src, config.WithStartFunctions())
-	if err != nil {
-		return Plugin{}, err
+func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plugin, error) {
+
+	modules := make([]api.Module, len(manifest.Wasm))
+
+	for index, wasm := range manifest.Wasm {
+		data, err := wasm.ToWasmData()
+		if err != nil {
+			return Plugin{}, err
+		}
+
+		// TODO: check hash
+
+		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, config.WithStartFunctions().WithName(data.Name))
+		if err != nil {
+			return Plugin{}, err
+		}
+
+		modules[index] = m
 	}
-	return Plugin{Runtime: c, Module: m}, nil
+
+	return Plugin{Runtime: c, Modules: modules}, nil
 }
 
 func (plugin *Plugin) SetInput(data []byte) error {
@@ -111,47 +166,34 @@ func (plugin *Plugin) GetError() string {
 	return string(mem)
 }
 
-func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
-	if err := plugin.SetInput(data); err != nil {
-		return -1, []byte{}, err
-	}
-
-	f := plugin.Module.ExportedFunction(name)
-	if f == nil {
-		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
-	}
-	results, err := f.Call(plugin.Runtime.ctx)
-	if err != nil {
-		return int32(results[0]), []byte{}, err
-	}
-
-	if results[0] != 0 {
-		errMsg := plugin.GetError()
-		return int32(results[0]), []byte{}, errors.New(errMsg)
-	}
-
-	output, err := plugin.GetOutput()
-	if err != nil {
-		return int32(results[0]), []byte{}, err
-	}
-
-	return int32(results[0]), output, nil
-}
-
 type result struct {
 	rc  int32
 	err error
 }
 
-func (plugin *Plugin) CallWithTimeout(name string, data []byte, timeout time.Duration) (int32, []byte, error) {
-	ctx, cancel := context.WithTimeout(plugin.Runtime.ctx, timeout)
-	defer cancel()
+func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
+	ctx := plugin.Runtime.ctx
+
+	if plugin.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, time.Duration(plugin.Timeout))
+		defer cancel()
+	}
 
 	if err := plugin.SetInput(data); err != nil {
 		return -1, []byte{}, err
 	}
 
-	f := plugin.Module.ExportedFunction(name)
+	// TODO: maybe there is a better way to do this?
+	var f api.Function
+	for _, m := range plugin.Modules {
+		f = m.ExportedFunction(name)
+
+		if f != nil {
+			break
+		}
+	}
+
 	if f == nil {
 		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
 	}

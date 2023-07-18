@@ -28,7 +28,15 @@ func main() {
 		return
 	}
 
-	plugin, err := r.NewPlugin(wasm, wazero.NewModuleConfig())
+	manifest := extism.Manifest{
+		Wasm: []extism.Wasm{
+			extism.WasmData{
+				Data: wasm,
+			},
+		},
+	}
+
+	plugin, err := r.NewPlugin(manifest, wazero.NewModuleConfig())
 
 	exit, output, err := plugin.Call("count_vowels", []byte("hello world"))
 
