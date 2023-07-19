@@ -2,7 +2,6 @@ package extism
 
 import (
 	"context"
-	_ "embed"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -51,7 +50,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 
 	builder.
 		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint32 { // NOTE: uint8 is not supported by wazero
+		WithFunc(func(offset uint64) uint32 {
 			f := extism.ExportedFunction("extism_load_u8")
 			res, err := f.Call(ctx, offset)
 			if err != nil {
@@ -258,21 +257,34 @@ func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 		extism := plugin.Runtime.Extism
 
 		mem := extism.Memory()
-		nameLengthResult, _ := extism.ExportedFunction("extism_length").Call(ctx, uint64(offset)) // TODO: handle fail
-		nameLength := nameLengthResult[0]                                                         // TODO: make sure it's only element
-		// TODO: Seems like Wazero only supports i32 offsets, is that going to be a problem for us?
-		buffer, _ := mem.Read(uint32(offset), uint32(nameLength)) // TODO: handle fail
+		nameLengthResult, err := extism.ExportedFunction("extism_length").Call(ctx, uint64(offset))
+		if err != nil {
+			panic(err)
+		}
+		nameLength := nameLengthResult[0] // TODO: make sure it's only element
+
+		buffer, ok := mem.Read(uint32(offset), uint32(nameLength))
+		if !ok {
+			panic("Out of bounds read")
+		}
 
 		name := string(buffer)
-		value := plugin.Config[name]
+		value, ok := plugin.Config[name]
+		if !ok {
+			// Return 0 without an error if key is not found
+			return 0
+		}
+
 		buffer = []byte(value)
-		res, _ := extism.ExportedFunction("alloc").Call(ctx, uint64(len(buffer))) // TODO: handle fail
+		res, err := extism.ExportedFunction("extism_alloc").Call(ctx, uint64(len(buffer)))
+		if err != nil {
+			panic(err)
+		}
 
 		out := res[0]
 		mem.Write(uint32(out), buffer)
 		return out
-	} else {
-		// TODO: handle fail
-		return 0
 	}
+
+	panic("Invalid context, `plugin` key not found")
 }
