@@ -2,9 +2,13 @@ package extism
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -24,6 +28,7 @@ type Runtime struct {
 type Plugin struct {
 	Runtime *Runtime
 	Modules []api.Module
+	Main    api.Module
 	Timeout uint
 }
 
@@ -53,6 +58,53 @@ type WasmUrl struct {
 
 func (d WasmData) ToWasmData() (WasmData, error) {
 	return d, nil
+}
+
+func (f WasmFile) ToWasmData() (WasmData, error) {
+	data, err := ioutil.ReadFile(f.Path)
+	if err != nil {
+		return WasmData{}, err
+	}
+
+	return WasmData{
+		Data: data,
+		Hash: f.Hash,
+		Name: f.Name,
+	}, nil
+}
+
+func (u WasmUrl) ToWasmData() (WasmData, error) {
+	client := http.DefaultClient
+
+	req, err := http.NewRequest(u.Method, u.Url, nil)
+	if err != nil {
+		return WasmData{}, err
+	}
+
+	for key, value := range u.Headers {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return WasmData{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return WasmData{}, errors.New("failed to fetch Wasm data from URL")
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return WasmData{}, err
+	}
+
+	return WasmData{
+		Data: data,
+		Hash: u.Hash,
+		Name: u.Name,
+	}, nil
 }
 
 type Manifest struct {
@@ -96,8 +148,12 @@ func (c Runtime) WithWasi() Runtime {
 }
 
 func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plugin, error) {
+	count := len(manifest.Wasm)
+	if count == 0 {
+		return Plugin{}, fmt.Errorf("Manifest can't be empty.")
+	}
 
-	modules := make([]api.Module, len(manifest.Wasm))
+	modules := make([]api.Module, count)
 
 	for index, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData()
@@ -105,17 +161,36 @@ func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plug
 			return Plugin{}, err
 		}
 
-		// TODO: check hash
+		if data.Hash != "" {
+			calculatedHash := calculateHash(data.Data)
+			if data.Hash != calculatedHash {
+				return Plugin{}, fmt.Errorf("Hash mismatch for module '%s'", data.Name)
+			}
+		}
 
 		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, config.WithStartFunctions().WithName(data.Name))
 		if err != nil {
 			return Plugin{}, err
+		} else if count > 1 && m.Name() == "" {
+			return Plugin{}, fmt.Errorf("Module name can't be empty if manifest contains multiple modules.")
 		}
 
 		modules[index] = m
 	}
 
-	return Plugin{Runtime: c, Modules: modules}, nil
+	// Try to find the main module:
+	//  - There is always one main module
+	//  - If a Wasm value has the Name field set to "main" then use that module
+	//  - If there is only one module in the manifest then that is the main module by default
+	//  - Otherwise the last module listed is the main module
+
+	for i, m := range modules {
+		if m.Name() == "main" || i == len(modules)-1 {
+			return Plugin{Runtime: c, Modules: modules, Main: m}, nil
+		}
+	}
+
+	panic("couldn't find a main module")
 }
 
 func (plugin *Plugin) SetInput(data []byte) error {
@@ -184,15 +259,7 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 		return -1, []byte{}, err
 	}
 
-	// TODO: maybe there is a better way to do this?
-	var f api.Function
-	for _, m := range plugin.Modules {
-		f = m.ExportedFunction(name)
-
-		if f != nil {
-			break
-		}
-	}
+	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
 		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
@@ -223,4 +290,10 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 
 	return rc, output, nil
 
+}
+
+func calculateHash(data []byte) string {
+	hasher := sha256.New()
+	hasher.Write(data)
+	return hex.EncodeToString(hasher.Sum(nil))
 }

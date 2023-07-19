@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 
 	extism "github.com/extism/go-sdk"
 	"github.com/tetratelabs/wazero"
@@ -21,21 +20,22 @@ func main() {
 
 	r = r.WithWasi()
 
-	wasm, err := ioutil.ReadFile("hello.wasm")
-	if err != nil {
-		fmt.Printf("Could not read file: %v\n", err)
-		return
-	}
-
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
-			extism.WasmData{
-				Data: wasm,
+			extism.WasmFile{
+				Path: "hello.wasm",
 			},
+			// extism.WasmUrl{
+			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
+			// },
 		},
 	}
 
 	plugin, err := r.NewPlugin(manifest, wazero.NewModuleConfig())
+	if err != nil {
+		fmt.Println("Could not create plugin: ", err)
+		return
+	}
 
 	exit, output, err := plugin.Call("run_test", []byte{})
 
