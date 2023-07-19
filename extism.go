@@ -22,6 +22,7 @@ var extismRuntimeWasm []byte
 type Runtime struct {
 	Wazero wazero.Runtime
 	Extism api.Module
+	Env    api.Module
 	ctx    context.Context
 }
 
@@ -30,6 +31,7 @@ type Plugin struct {
 	Modules []api.Module
 	Main    api.Module
 	Timeout uint
+	Config  map[string]string
 }
 
 type Wasm interface {
@@ -126,14 +128,21 @@ func NewRuntime(ctx context.Context, rconfig ...wazero.RuntimeConfig) (Runtime, 
 		config = rconfig[0]
 	}
 	rt := wazero.NewRuntimeWithConfig(ctx, config.WithCloseOnContextDone(true))
-	ext, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("env"))
+
+	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
+	if err != nil {
+		return Runtime{}, err
+	}
+
+	env, err := buildEnvModule(ctx, rt, extism)
 	if err != nil {
 		return Runtime{}, err
 	}
 
 	return Runtime{
 		Wazero: rt,
-		Extism: ext,
+		Extism: extism,
+		Env:    env,
 		ctx:    ctx,
 	}, nil
 }
@@ -186,15 +195,19 @@ func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plug
 
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
-			return Plugin{Runtime: c, Modules: modules, Main: m}, nil
+			return Plugin{Runtime: c, Modules: modules, Main: m, Config: map[string]string{}}, nil
 		}
 	}
 
-	panic("couldn't find a main module")
+	return Plugin{}, errors.New("No main module found")
 }
 
 func (plugin *Plugin) SetInput(data []byte) error {
-	plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx, uint64(len(data)))
+	_, err := plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx)
+	if err != nil {
+		fmt.Println(err)
+		return errors.New("reset")
+	}
 	ptr, err := plugin.Runtime.Extism.ExportedFunction("extism_alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
 	if err != nil {
 		return err
@@ -254,6 +267,8 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, time.Duration(plugin.Timeout))
 		defer cancel()
 	}
+
+	ctx = context.WithValue(ctx, "plugin", plugin)
 
 	if err := plugin.SetInput(data); err != nil {
 		return -1, []byte{}, err
