@@ -23,7 +23,7 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "var.wasm",
+				Path: "http.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -31,6 +31,10 @@ func main() {
 		},
 		Config: map[string]string{
 			"thing": "config from host",
+		},
+		AllowedHosts: []string{
+			"google.*",
+			"jsonplaceholder.*.com",
 		},
 	}
 
@@ -40,9 +44,11 @@ func main() {
 		return
 	}
 
-	plugin.Var["a"] = intToLEBytes(10)
+	plugin.Var["a"] = uintToLEBytes(10)
 
 	exit, output, err := plugin.Call("run_test", []byte{})
+
+	a := uintFromLEBytes(plugin.Var["a"])
 
 	if err != nil {
 		fmt.Printf("Error during call: %v\n", err)
@@ -51,14 +57,19 @@ func main() {
 	} else {
 		str := string(output)
 		fmt.Println("output:", str)
+		fmt.Printf("a: %v\n", a)
 	}
 }
 
-func intToLEBytes(num int) []byte {
+func uintToLEBytes(num uint) []byte {
 	var bytes [4]byte
 	bytes[0] = byte(num)
 	bytes[1] = byte(num >> 8)
 	bytes[2] = byte(num >> 16)
 	bytes[3] = byte(num >> 24)
 	return bytes[:]
+}
+
+func uintFromLEBytes(bytes []byte) uint {
+	return uint(bytes[0]) | uint(bytes[1])<<8 | uint(bytes[2])<<16 | uint(bytes[3])<<24
 }

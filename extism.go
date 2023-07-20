@@ -26,13 +26,23 @@ type Runtime struct {
 	ctx    context.Context
 }
 
+type HttpRequest struct {
+	Url     string
+	Headers map[string]string
+	Method  string
+}
+
 type Plugin struct {
 	Runtime *Runtime
 	Modules []api.Module
 	Main    api.Module
 	Timeout uint
 	Config  map[string]string
-	Var     map[string][]byte
+	// NOTE: maybe we can have some nice methods for getting/setting vars
+	Var            map[string][]byte
+	AllowedHosts   []string
+	AllowedPaths   map[string]string
+	LastStatusCode int
 }
 
 type Wasm interface {
@@ -196,7 +206,15 @@ func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plug
 
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
-			return Plugin{Runtime: c, Modules: modules, Main: m, Config: manifest.Config, Var: map[string][]byte{}}, nil
+			return Plugin{
+				Runtime:        c,
+				Modules:        modules,
+				Main:           m,
+				Config:         manifest.Config,
+				Var:            map[string][]byte{},
+				AllowedHosts:   manifest.AllowedHosts,
+				AllowedPaths:   manifest.AllowedPaths,
+				LastStatusCode: 0}, nil
 		}
 	}
 
