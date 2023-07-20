@@ -159,8 +159,8 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 					break
 				}
 
-				pat := glob.MustCompile(allowedHost)
-				if pat.Match(url.Hostname()) {
+				pattern := glob.MustCompile(allowedHost)
+				if pattern.Match(url.Hostname()) {
 					hostMatches = true
 					break
 				}
@@ -172,8 +172,6 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 		if !hostMatches {
 			panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
 		}
-
-		// TODO: check for allowed paths too
 
 		var bodyReader io.Reader = nil
 		if bodyOffset != 0 {
