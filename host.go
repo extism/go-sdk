@@ -7,242 +7,46 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+type ValType = api.ValueType
+
+const I32 = api.ValueTypeI32
+const I64 = api.ValueTypeI64
+
 func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("env")
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(length uint64) uint64 {
-			f := extism.ExportedFunction("extism_alloc")
-			res, err := f.Call(ctx, length)
-			if err != nil {
-				panic(err)
-			}
 
-			return res[0]
-		}).
-		Export("extism_alloc")
+	wrap := func(name string, params []ValType, results []ValType) {
+		builder.
+			NewFunctionBuilder().
+			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
+				f := extism.ExportedFunction(name)
+				err := f.CallWithStack(ctx, stack)
+				if err != nil {
+					panic(err)
+				}
+			}), params, results).
+			Export(name)
+	}
 
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(length uint64) uint64 {
-			f := extism.ExportedFunction("extism_free")
-			res, err := f.Call(ctx, length)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_free")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint64 {
-			f := extism.ExportedFunction("extism_load_u64")
-			res, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_load_u64")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint32 {
-			f := extism.ExportedFunction("extism_load_u8")
-			res, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-
-			return uint32(res[0])
-		}).
-		Export("extism_load_u8")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint64 {
-			f := extism.ExportedFunction("extism_input_load_u64")
-			res, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_input_load_u64")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint32 { // NOTE: uint8 is not supported by wazero
-			f := extism.ExportedFunction("extism_input_load_u8")
-			res, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-
-			return uint32(res[0])
-		}).
-		Export("extism_input_load_u8")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64, x uint32) { // NOTE: uint8 is not supported by wazero
-			f := extism.ExportedFunction("extism_store_u8")
-			_, err := f.Call(ctx, offset, uint64(x))
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_store_u8")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64, x uint64) {
-			f := extism.ExportedFunction("extism_store_u64")
-			_, err := f.Call(ctx, offset, x)
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_store_u64")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64, length uint64) {
-			f := extism.ExportedFunction("extism_input_set")
-			_, err := f.Call(ctx, length)
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_input_set")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64, length uint64) {
-			f := extism.ExportedFunction("extism_output_set")
-			_, err := f.Call(ctx, offset, length)
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_output_set")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_input_length")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_input_length")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_input_offset")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_input_offset")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_output_length")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_output_length")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_output_offset")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_output_offset")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) uint64 {
-			f := extism.ExportedFunction("extism_length")
-			res, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_length")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() {
-			f := extism.ExportedFunction("extism_reset")
-			_, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_reset")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func(offset uint64) {
-			f := extism.ExportedFunction("extism_error_set")
-			_, err := f.Call(ctx, offset)
-			if err != nil {
-				panic(err)
-			}
-		}).
-		Export("extism_error_set")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_error_get")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_error_get")
-
-	builder.
-		NewFunctionBuilder().
-		WithFunc(func() uint64 {
-			f := extism.ExportedFunction("extism_memory_bytes")
-			res, err := f.Call(ctx)
-			if err != nil {
-				panic(err)
-			}
-
-			return res[0]
-		}).
-		Export("extism_memory_bytes")
+	wrap("extism_alloc", []ValType{I64}, []ValType{I64})
+	wrap("extism_free", []ValType{I64}, []ValType{})
+	wrap("extism_load_u64", []ValType{I64}, []ValType{I64})
+	wrap("extism_load_u8", []ValType{I64}, []ValType{I32})
+	wrap("extism_input_load_u64", []ValType{I64}, []ValType{I64})
+	wrap("extism_input_load_u8", []ValType{I64}, []ValType{I32})
+	wrap("extism_store_u64", []ValType{I64, I64}, []ValType{})
+	wrap("extism_store_u8", []ValType{I64, I32}, []ValType{})
+	wrap("extism_input_set", []ValType{I64, I64}, []ValType{})
+	wrap("extism_output_set", []ValType{I64, I64}, []ValType{})
+	wrap("extism_input_length", []ValType{}, []ValType{I64})
+	wrap("extism_input_offset", []ValType{}, []ValType{I64})
+	wrap("extism_output_length", []ValType{}, []ValType{I64})
+	wrap("extism_output_offset", []ValType{}, []ValType{I64})
+	wrap("extism_length", []ValType{I64}, []ValType{I64})
+	wrap("extism_reset", []ValType{}, []ValType{})
+	wrap("extism_error_set", []ValType{I64}, []ValType{})
+	wrap("extism_error_get", []ValType{}, []ValType{I64})
+	wrap("extism_memory_bytes", []ValType{}, []ValType{I64})
 
 	builder.
 		NewFunctionBuilder().
