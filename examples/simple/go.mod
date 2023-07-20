@@ -1,4 +1,4 @@
-module github.com/extism/go-sdk-example-simple
+module github.com/extism/go-sdk-examples-simple
 
 go 1.20
 

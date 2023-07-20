@@ -32,6 +32,7 @@ type Plugin struct {
 	Main    api.Module
 	Timeout uint
 	Config  map[string]string
+	Var     map[string][]byte
 }
 
 type Wasm interface {
@@ -195,7 +196,7 @@ func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plug
 
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
-			return Plugin{Runtime: c, Modules: modules, Main: m, Config: map[string]string{}}, nil
+			return Plugin{Runtime: c, Modules: modules, Main: m, Config: manifest.Config, Var: map[string][]byte{}}, nil
 		}
 	}
 

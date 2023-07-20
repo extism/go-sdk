@@ -23,11 +23,14 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "hello.wasm",
+				Path: "var.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
 			// },
+		},
+		Config: map[string]string{
+			"thing": "config from host",
 		},
 	}
 
@@ -36,6 +39,8 @@ func main() {
 		fmt.Println("Could not create plugin: ", err)
 		return
 	}
+
+	plugin.Var["a"] = intToLEBytes(10)
 
 	exit, output, err := plugin.Call("run_test", []byte{})
 
@@ -47,4 +52,13 @@ func main() {
 		str := string(output)
 		fmt.Println("output:", str)
 	}
+}
+
+func intToLEBytes(num int) []byte {
+	var bytes [4]byte
+	bytes[0] = byte(num)
+	bytes[1] = byte(num >> 8)
+	bytes[2] = byte(num >> 16)
+	bytes[3] = byte(num >> 24)
+	return bytes[:]
 }

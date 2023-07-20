@@ -1,4 +1,4 @@
-module github.com/extism/go-sdk-example-count-vowels
+module github.com/extism/go-sdk-examples-count-vowels
 
 go 1.20
 
