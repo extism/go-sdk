@@ -7,7 +7,7 @@ func run_test() int32 {
 	thing, ok := pdk.GetConfig("thing")
 
 	if !ok {
-		thing = "wot"
+		thing = "<unset by host>"
 	}
 
 	output := `{"config": "` + thing + `"}`
