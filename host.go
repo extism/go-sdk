@@ -33,6 +33,7 @@ type HostFunction struct {
 	Namespace string
 	Params    []api.ValueType
 	Results   []api.ValueType
+	// TODO: support user data
 }
 
 func (p *CurrentPlugin) Memory() api.Memory {
