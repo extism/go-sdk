@@ -167,10 +167,27 @@ func (c Runtime) WithWasi() Runtime {
 	return c
 }
 
-func (c *Runtime) NewPlugin(manifest Manifest, config wazero.ModuleConfig) (Plugin, error) {
+func (c *Runtime) NewPlugin(
+	manifest Manifest,
+	config wazero.ModuleConfig,
+	functions []HostFunction) (Plugin, error) {
 	count := len(manifest.Wasm)
 	if count == 0 {
 		return Plugin{}, fmt.Errorf("Manifest can't be empty.")
+	}
+
+	hostModules := make(map[string][]HostFunction, 0)
+	for _, f := range functions {
+		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
+	}
+
+	for name, funcs := range hostModules {
+		// TODO: check for colision with other module names
+		// TODO: take special care of `env` module host functions
+		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
+		if err != nil {
+			return Plugin{}, err
+		}
 	}
 
 	modules := make([]api.Module, count)

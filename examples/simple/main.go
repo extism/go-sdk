@@ -6,10 +6,27 @@ import (
 
 	extism "github.com/extism/go-sdk"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 )
 
 func main() {
 	ctx := context.Background()
+
+	funcs := []extism.HostFunction{
+		{
+			Name:      "mult",
+			Namespace: "host",
+			Callback: func(ctx context.Context, plugin *extism.CurrentPlugin, inputs []uint64) []uint64 {
+				a := api.DecodeI32(inputs[0])
+				b := api.DecodeI32(inputs[1])
+
+				return []uint64{api.EncodeI32(a * b)}
+			},
+			Params:  []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+			Results: []api.ValueType{api.ValueTypeI64},
+		},
+	}
+
 	r, err := extism.NewRuntime(ctx)
 	if err != nil {
 		fmt.Printf("Could not initialize runtime: %v\n", err)
@@ -23,7 +40,7 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "http.wasm",
+				Path: "host.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -38,7 +55,7 @@ func main() {
 		},
 	}
 
-	plugin, err := r.NewPlugin(manifest, wazero.NewModuleConfig())
+	plugin, err := r.NewPlugin(manifest, wazero.NewModuleConfig(), funcs)
 	if err != nil {
 		fmt.Println("Could not create plugin: ", err)
 		return

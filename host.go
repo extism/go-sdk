@@ -21,6 +21,46 @@ type ValType = api.ValueType
 const I32 = api.ValueTypeI32
 const I64 = api.ValueTypeI64
 
+type CurrentPlugin struct {
+	plugin *Plugin
+}
+
+type HostFuncCallback func(ctx context.Context, plugin *CurrentPlugin, inputs []uint64) []uint64
+
+type HostFunction struct {
+	Callback  HostFuncCallback
+	Name      string
+	Namespace string
+	Params    []api.ValueType
+	Results   []api.ValueType
+}
+
+func (p *CurrentPlugin) Memory() api.Memory {
+	return p.plugin.Runtime.Extism.Memory()
+}
+
+func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs []HostFunction) (api.Module, error) {
+	builder := rt.NewHostModuleBuilder(name)
+
+	for _, f := range funcs {
+		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
+			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+				p := CurrentPlugin{
+					plugin: plugin,
+				}
+
+				out := f.Callback(ctx, &p, stack)
+				copy(stack, out)
+				return
+			}
+
+			panic("Invalid context, `plugin` key not found")
+		}), f.Params, f.Results).Export(f.Name)
+	}
+
+	return builder.Instantiate(ctx)
+}
+
 func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("env")
 
