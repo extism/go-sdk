@@ -43,6 +43,12 @@ func (p *CurrentPlugin) Memory() api.Memory {
 func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs []HostFunction) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder(name)
 
+	defineCustomHostFunctions(builder, funcs)
+
+	return builder.Instantiate(ctx)
+}
+
+func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFunction) {
 	for _, f := range funcs {
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
@@ -58,11 +64,9 @@ func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs 
 			panic("Invalid context, `plugin` key not found")
 		}), f.Params, f.Results).Export(f.Name)
 	}
-
-	return builder.Instantiate(ctx)
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
+func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, funcs []HostFunction) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
@@ -107,6 +111,8 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("extism_var_set", varSet)
 	hostFunc("extism_http_request", httpRequest)
 	hostFunc("extism_http_status_code", httpStatusCode)
+
+	defineCustomHostFunctions(builder, funcs)
 
 	return builder.Instantiate(ctx)
 }

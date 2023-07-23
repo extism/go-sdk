@@ -26,6 +26,12 @@ type Runtime struct {
 	ctx    context.Context
 }
 
+type PluginConfig struct {
+	ModuleConfig  wazero.ModuleConfig
+	RuntimeConfig []wazero.RuntimeConfig
+	EnableWasi    bool
+}
+
 type HttpRequest struct {
 	Url     string
 	Headers map[string]string
@@ -131,49 +137,27 @@ type Manifest struct {
 	Timeout      uint              `json:"timeout_ms,omitempty"`
 }
 
-func NewRuntime(ctx context.Context, rconfig ...wazero.RuntimeConfig) (Runtime, error) {
-	var config wazero.RuntimeConfig
-	if len(rconfig) == 0 {
-		config = wazero.NewRuntimeConfig()
+func (p *Plugin) Close() error {
+	return p.Runtime.Wazero.Close(p.Runtime.ctx)
+}
+
+func NewPlugin(
+	ctx context.Context,
+	manifest Manifest,
+	config PluginConfig,
+	functions []HostFunction) (Plugin, error) {
+
+	var rconfig wazero.RuntimeConfig
+	if len(config.RuntimeConfig) == 0 {
+		rconfig = wazero.NewRuntimeConfig()
 	} else {
-		config = rconfig[0]
+		rconfig = config.RuntimeConfig[0]
 	}
-	rt := wazero.NewRuntimeWithConfig(ctx, config.WithCloseOnContextDone(true))
+	rt := wazero.NewRuntimeWithConfig(ctx, rconfig.WithCloseOnContextDone(true))
 
 	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
 	if err != nil {
-		return Runtime{}, err
-	}
-
-	env, err := buildEnvModule(ctx, rt, extism)
-	if err != nil {
-		return Runtime{}, err
-	}
-
-	return Runtime{
-		Wazero: rt,
-		Extism: extism,
-		Env:    env,
-		ctx:    ctx,
-	}, nil
-}
-
-func (c *Runtime) Close() error {
-	return c.Wazero.Close(c.ctx)
-}
-
-func (c Runtime) WithWasi() Runtime {
-	wasi_snapshot_preview1.MustInstantiate(c.ctx, c.Wazero)
-	return c
-}
-
-func (c *Runtime) NewPlugin(
-	manifest Manifest,
-	config wazero.ModuleConfig,
-	functions []HostFunction) (Plugin, error) {
-	count := len(manifest.Wasm)
-	if count == 0 {
-		return Plugin{}, fmt.Errorf("Manifest can't be empty.")
+		return Plugin{}, err
 	}
 
 	hostModules := make(map[string][]HostFunction, 0)
@@ -181,13 +165,39 @@ func (c *Runtime) NewPlugin(
 		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
 	}
 
+	env, err := buildEnvModule(ctx, rt, extism, hostModules["env"])
+	if err != nil {
+		return Plugin{}, err
+	}
+
+	c := Runtime{
+		Wazero: rt,
+		Extism: extism,
+		Env:    env,
+		ctx:    ctx,
+	}
+
+	if config.EnableWasi {
+		wasi_snapshot_preview1.MustInstantiate(c.ctx, c.Wazero)
+	}
+
 	for name, funcs := range hostModules {
+		// `env` host functions are handled by `buildEnvModule
+		if name == "env" {
+			continue
+		}
+
 		// TODO: check for colision with other module names
 		// TODO: take special care of `env` module host functions
 		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
 		if err != nil {
 			return Plugin{}, err
 		}
+	}
+
+	count := len(manifest.Wasm)
+	if count == 0 {
+		return Plugin{}, fmt.Errorf("Manifest can't be empty.")
 	}
 
 	modules := make([]api.Module, count)
@@ -205,7 +215,7 @@ func (c *Runtime) NewPlugin(
 			}
 		}
 
-		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, config.WithStartFunctions().WithName(data.Name))
+		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, config.ModuleConfig.WithStartFunctions().WithName(data.Name))
 		if err != nil {
 			return Plugin{}, err
 		} else if count > 1 && m.Name() == "" {
@@ -224,7 +234,7 @@ func (c *Runtime) NewPlugin(
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
 			return Plugin{
-				Runtime:        c,
+				Runtime:        &c,
 				Modules:        modules,
 				Main:           m,
 				Config:         manifest.Config,
