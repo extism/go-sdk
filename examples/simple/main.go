@@ -40,7 +40,7 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "host.wasm",
+				Path: "log.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -61,6 +61,7 @@ func main() {
 		return
 	}
 
+	plugin.SetLogLevel(extism.Debug)
 	plugin.Var["a"] = uintToLEBytes(10)
 
 	exit, output, err := plugin.Call("run_test", []byte{})

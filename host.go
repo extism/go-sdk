@@ -108,6 +108,26 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("extism_http_request", httpRequest)
 	hostFunc("extism_http_status_code", httpStatusCode)
 
+	logFunc := func(name string, level LogLevel) {
+		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
+			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+				extism := plugin.Runtime.Extism
+
+				message := readString(extism, ctx, offset)
+				plugin.Log(level, message)
+
+				return
+			}
+
+			panic("Invalid context, `plugin` key not found")
+		})
+	}
+
+	logFunc("extism_log_debug", Debug)
+	logFunc("extism_log_info", Info)
+	logFunc("extism_log_warn", Warn)
+	logFunc("extism_log_error", Error)
+
 	return builder.Instantiate(ctx)
 }
 
