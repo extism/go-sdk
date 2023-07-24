@@ -56,6 +56,7 @@ func main() {
 		return
 	}
 
+	plugin.SetLogLevel(extism.Debug)
 	plugin.Var["a"] = uintToLEBytes(10)
 
 	exit, output, err := plugin.Call("run_test", []byte{})

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -38,6 +39,17 @@ type HttpRequest struct {
 	Method  string
 }
 
+type LogLevel uint8
+
+const (
+	Off LogLevel = iota
+	Error
+	Warn
+	Info
+	Debug
+	Trace
+)
+
 type Plugin struct {
 	Runtime *Runtime
 	Modules []api.Module
@@ -49,6 +61,33 @@ type Plugin struct {
 	AllowedHosts   []string
 	AllowedPaths   map[string]string
 	LastStatusCode int
+	log            func(LogLevel, string)
+	logLevel       LogLevel
+}
+
+func logStd(level LogLevel, message string) {
+	log.Printf(message)
+}
+
+func (p *Plugin) SetLogger(logger func(LogLevel, string)) {
+	p.log = logger
+}
+
+func (p *Plugin) SetLogLevel(level LogLevel) {
+	p.logLevel = level
+}
+
+func (p *Plugin) Log(level LogLevel, message string) {
+	if level > p.logLevel {
+		return
+	}
+
+	p.log(level, message)
+}
+
+func (p *Plugin) Logf(level LogLevel, format string, args ...any) {
+	message := fmt.Sprintf(format, args...)
+	p.Log(level, message)
 }
 
 type Wasm interface {
@@ -241,7 +280,9 @@ func NewPlugin(
 				Var:            map[string][]byte{},
 				AllowedHosts:   manifest.AllowedHosts,
 				AllowedPaths:   manifest.AllowedPaths,
-				LastStatusCode: 0}, nil
+				LastStatusCode: 0,
+				log:            logStd,
+				logLevel:       Warn}, nil
 		}
 	}
 
