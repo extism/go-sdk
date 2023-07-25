@@ -43,10 +43,13 @@ func main() {
 			"google.*",
 			"jsonplaceholder.*.com",
 		},
+		AllowedPaths: map[string]string{
+			"fs": "/",
+		},
 	}
 
 	config := extism.PluginConfig{
-		ModuleConfig: wazero.NewModuleConfig(),
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:   true,
 	}
 
