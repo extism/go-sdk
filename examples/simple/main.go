@@ -30,7 +30,7 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "fs.wasm",
+				Path: "host.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -43,13 +43,10 @@ func main() {
 			"google.*",
 			"jsonplaceholder.*.com",
 		},
-		AllowedPaths: map[string]string{
-			"fs": "/",
-		},
 	}
 
 	config := extism.PluginConfig{
-		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+		ModuleConfig: wazero.NewModuleConfig(),
 		EnableWasi:   true,
 	}
 
