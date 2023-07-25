@@ -231,6 +231,18 @@ func (c *Runtime) NewPlugin(
 
 	modules := make([]api.Module, count)
 
+	// NOTE: this is only necessary for guest modules because
+	// host modules have the same access privileges as the host itself
+	fs := wazero.NewFSConfig()
+
+	for k, v := range manifest.AllowedPaths {
+		// TODO: wazero supports read-only mounting, do we want to support that too?
+		fs = fs.WithDirMount(k, v)
+	}
+
+	// NOTE: by default, `_start` function will be called
+	moduleConfig := config.WithFSConfig(fs)
+
 	for index, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData()
 		if err != nil {
@@ -244,7 +256,7 @@ func (c *Runtime) NewPlugin(
 			}
 		}
 
-		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, config.WithStartFunctions().WithName(data.Name))
+		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, moduleConfig.WithName(data.Name))
 		if err != nil {
 			return Plugin{}, err
 		} else if count > 1 && m.Name() == "" {
