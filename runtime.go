@@ -78,13 +78,11 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 // initialize certain interfaces.
 func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	if !p.Runtime.hasWasi {
-		p.Log(Error, "NO WASI")
 		return GuestRuntime{}, false
 	}
 
 	initFunc := m.ExportedFunction("__wasm_call_ctors")
 	if initFunc == nil {
-		p.Log(Error, "NO __wasm_call_ctors")
 		return GuestRuntime{}, false
 	}
 
