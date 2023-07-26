@@ -194,6 +194,11 @@ func NewPlugin(
 	} else {
 		rconfig = config.RuntimeConfig[0]
 	}
+
+	if manifest.Memory.MaxPages > 0 {
+		rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
+	}
+
 	rt := wazero.NewRuntimeWithConfig(ctx, rconfig.WithCloseOnContextDone(true))
 
 	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
@@ -299,6 +304,7 @@ func NewPlugin(
 				AllowedHosts:   manifest.AllowedHosts,
 				AllowedPaths:   manifest.AllowedPaths,
 				LastStatusCode: 0,
+				Timeout:        manifest.Timeout,
 				log:            logStd,
 				logLevel:       Warn}
 
@@ -368,12 +374,18 @@ type result struct {
 	err error
 }
 
+func (plugin *Plugin) FunctionExists(name string) bool {
+	return plugin.Main.ExportedFunction(name) != nil
+}
+
 func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 	ctx := plugin.Runtime.ctx
 
 	if plugin.Timeout > 0 {
+		timeout := time.Duration(plugin.Timeout) * time.Millisecond
+
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, time.Duration(plugin.Timeout))
+		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, timeout)
 		defer cancel()
 	}
 
@@ -396,8 +408,6 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 		if err != nil {
 			return -1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
-	} else {
-		plugin.Logf(Error, "start: %v, type: %v", isStart, plugin.guestRuntime.Type)
 	}
 
 	plugin.Logf(Debug, "Calling function : %v", name)

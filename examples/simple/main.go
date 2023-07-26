@@ -30,14 +30,15 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "fs.wasm",
+				Path: "sleep.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
 			// },
 		},
 		Config: map[string]string{
-			"thing": "config from host",
+			"thing":    "config from host",
+			"duration": "3",
 		},
 		AllowedHosts: []string{
 			"google.*",
@@ -46,6 +47,7 @@ func main() {
 		AllowedPaths: map[string]string{
 			"mnt": "/mnt",
 		},
+		Timeout: 100, // 100ms
 	}
 
 	config := extism.PluginConfig{
@@ -60,13 +62,6 @@ func main() {
 	}
 
 	defer plugin.Close()
-
-	// TODO: this is a temporary solution to make fs.wasm work
-	code, _, err := plugin.Call("_start", []byte{})
-
-	if err != nil || code != 0 {
-		fmt.Printf("Start function failed. Error %v: %v\n", code, err)
-	}
 
 	plugin.SetLogLevel(extism.Trace)
 	plugin.Var["a"] = uintToLEBytes(10)
