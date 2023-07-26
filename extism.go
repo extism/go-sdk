@@ -21,10 +21,11 @@ import (
 var extismRuntimeWasm []byte
 
 type Runtime struct {
-	Wazero wazero.Runtime
-	Extism api.Module
-	Env    api.Module
-	ctx    context.Context
+	Wazero  wazero.Runtime
+	Extism  api.Module
+	Env     api.Module
+	ctx     context.Context
+	hasWasi bool
 }
 
 type PluginConfig struct {
@@ -63,6 +64,7 @@ type Plugin struct {
 	LastStatusCode int
 	log            func(LogLevel, string)
 	logLevel       LogLevel
+	guestRuntime   GuestRuntime
 }
 
 func logStd(level LogLevel, message string) {
@@ -218,6 +220,8 @@ func NewPlugin(
 
 	if config.EnableWasi {
 		wasi_snapshot_preview1.MustInstantiate(c.ctx, c.Wazero)
+
+		c.hasWasi = true
 	}
 
 	for name, funcs := range hostModules {
@@ -245,13 +249,15 @@ func NewPlugin(
 	// host modules have the same access privileges as the host itself
 	fs := wazero.NewFSConfig()
 
-	for k, v := range manifest.AllowedPaths {
+	for host, guest := range manifest.AllowedPaths {
 		// TODO: wazero supports read-only mounting, do we want to support that too?
-		fs = fs.WithDirMount(k, v)
+		fs = fs.WithDirMount(host, guest)
 	}
 
-	// NOTE: by default, `_start` function will be called
-	moduleConfig := config.ModuleConfig.WithFSConfig(fs)
+	// NOTE: we don't want wazero to call the start function, we will initialize
+	// the guest runtime manually.
+	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
+	moduleConfig := config.ModuleConfig.WithStartFunctions().WithFSConfig(fs)
 
 	for index, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData()
@@ -284,7 +290,7 @@ func NewPlugin(
 
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
-			return Plugin{
+			p := Plugin{
 				Runtime:        &c,
 				Modules:        modules,
 				Main:           m,
@@ -294,7 +300,11 @@ func NewPlugin(
 				AllowedPaths:   manifest.AllowedPaths,
 				LastStatusCode: 0,
 				log:            logStd,
-				logLevel:       Warn}, nil
+				logLevel:       Warn}
+
+			p.guestRuntime = guestRuntime(&p, m)
+
+			return p, nil
 		}
 	}
 
@@ -373,12 +383,34 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 		return -1, []byte{}, err
 	}
 
+	isStart := name == "_start"
+
 	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
 		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
 	}
+
+	if !isStart && plugin.guestRuntime.Type != None {
+		err := plugin.guestRuntime.Initialize()
+		if err != nil {
+			return -1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
+		}
+	} else {
+		plugin.Logf(Error, "start: %v, type: %v", isStart, plugin.guestRuntime.Type)
+	}
+
+	plugin.Logf(Debug, "Calling function : %v", name)
+
 	res, err := f.Call(ctx)
+
+	if !isStart && plugin.guestRuntime.Cleanup != nil {
+		err := plugin.guestRuntime.Cleanup()
+		if err != nil {
+			return -1, []byte{}, errors.New(fmt.Sprintf("failed to cleanup runtime: %v", err))
+		}
+	}
+
 	var rc int32
 	if len(res) == 0 {
 		rc = -1

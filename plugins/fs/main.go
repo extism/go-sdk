@@ -11,7 +11,7 @@ import (
 //export run_test
 func run_test() int32 {
 
-	content, err := updateFile("/hello.txt")
+	content, err := updateFile("/mnt/test.txt")
 	if err != nil {
 		pdk.Log(pdk.LogError, err.Error())
 		return 1

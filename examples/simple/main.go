@@ -30,7 +30,7 @@ func main() {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "host.wasm",
+				Path: "fs.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -44,7 +44,7 @@ func main() {
 			"jsonplaceholder.*.com",
 		},
 		AllowedPaths: map[string]string{
-			"fs": "/",
+			"mnt": "/mnt",
 		},
 	}
 
@@ -59,7 +59,16 @@ func main() {
 		return
 	}
 
-	plugin.SetLogLevel(extism.Debug)
+	defer plugin.Close()
+
+	// TODO: this is a temporary solution to make fs.wasm work
+	code, _, err := plugin.Call("_start", []byte{})
+
+	if err != nil || code != 0 {
+		fmt.Printf("Start function failed. Error %v: %v\n", code, err)
+	}
+
+	plugin.SetLogLevel(extism.Trace)
 	plugin.Var["a"] = uintToLEBytes(10)
 
 	exit, output, err := plugin.Call("run_test", []byte{})
