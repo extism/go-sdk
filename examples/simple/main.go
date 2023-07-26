@@ -15,7 +15,7 @@ func main() {
 	funcs := []extism.HostFunction{
 		{
 			Name:      "mult",
-			Namespace: "host",
+			Namespace: "env",
 			Callback: func(ctx context.Context, plugin *extism.CurrentPlugin, inputs []uint64) []uint64 {
 				a := api.DecodeI32(inputs[0])
 				b := api.DecodeI32(inputs[1])
@@ -27,20 +27,10 @@ func main() {
 		},
 	}
 
-	r, err := extism.NewRuntime(ctx)
-	if err != nil {
-		fmt.Printf("Could not initialize runtime: %v\n", err)
-		return
-	} else {
-		defer r.Close()
-	}
-
-	r = r.WithWasi()
-
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "fs.wasm",
+				Path: "host.wasm",
 			},
 			// extism.WasmUrl{
 			// 	Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
@@ -58,7 +48,12 @@ func main() {
 		},
 	}
 
-	plugin, err := r.NewPlugin(manifest, wazero.NewModuleConfig().WithSysWalltime(), funcs)
+	config := extism.PluginConfig{
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:   true,
+	}
+
+	plugin, err := extism.NewPlugin(ctx, manifest, config, funcs)
 	if err != nil {
 		fmt.Println("Could not create plugin: ", err)
 		return
