@@ -218,22 +218,19 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			panic(fmt.Errorf("Invalid Url: %v", err))
 		}
 
+		// deny all requests by default
 		hostMatches := false
-		if len(plugin.AllowedHosts) > 0 {
-			for _, allowedHost := range plugin.AllowedHosts {
-				if allowedHost == url.Hostname() {
-					hostMatches = true
-					break
-				}
-
-				pattern := glob.MustCompile(allowedHost)
-				if pattern.Match(url.Hostname()) {
-					hostMatches = true
-					break
-				}
+		for _, allowedHost := range plugin.AllowedHosts {
+			if allowedHost == url.Hostname() {
+				hostMatches = true
+				break
 			}
-		} else {
-			hostMatches = true
+
+			pattern := glob.MustCompile(allowedHost)
+			if pattern.Match(url.Hostname()) {
+				hostMatches = true
+				break
+			}
 		}
 
 		if !hostMatches {
