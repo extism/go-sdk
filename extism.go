@@ -55,7 +55,7 @@ type Plugin struct {
 	Runtime *Runtime
 	Modules []api.Module
 	Main    api.Module
-	Timeout uint
+	Timeout time.Duration
 	Config  map[string]string
 	// NOTE: maybe we can have some nice methods for getting/setting vars
 	Var            map[string][]byte
@@ -175,7 +175,7 @@ type Manifest struct {
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
 	AllowedPaths map[string]string `json:"allowed_paths,omitempty"`
-	Timeout      uint              `json:"timeout_ms,omitempty"`
+	Timeout      time.Duration     `json:"timeout_ms,omitempty"`
 }
 
 func (p *Plugin) Close() error {
