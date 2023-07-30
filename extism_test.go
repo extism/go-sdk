@@ -296,10 +296,9 @@ func TestFS(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		// NOTE: this is necessary for now
-		exit, output, err := plugin.Call("_start", []byte{}) // TODO: investigate why err is not nil
+		// NOTE: Currently, we can only access the file system in Command modules for Go PDK
+		exit, output, err := plugin.Call("_start", []byte{})
 
-		exit, output, err = plugin.Call("run_test", []byte{})
 		if assertCall(t, err, exit) {
 			actual := string(output)
 			expected := "hello world!"

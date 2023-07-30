@@ -423,10 +423,16 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 
 	var rc int32
 	if len(res) == 0 {
-		rc = -1
+		if name == "_start" {
+			// NOTE: main function can't return anything in Go
+			rc = 0
+		} else {
+			rc = -1
+		}
 	} else {
 		rc = int32(res[0])
 	}
+
 	if err != nil {
 		return rc, []byte{}, err
 	}
