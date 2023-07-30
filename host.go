@@ -244,7 +244,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			bodyReader = bytes.NewReader(body)
 		}
 
-		req, err := http.NewRequest(request.Method, request.Url, bodyReader)
+		req, err := http.NewRequestWithContext(ctx, request.Method, request.Url, bodyReader)
 		if err != nil {
 			panic(err)
 		}
