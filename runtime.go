@@ -74,13 +74,51 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	return GuestRuntime{Type: Haskell, Initialize: init, Cleanup: cleanup}, true
 }
 
-// Check for `__wasm__call_ctors` and `__wasm_call_dtors`, this is used by WASI to
-// initialize certain interfaces.
+// Check for initialization and cleanup functions defined by the WASI standard
 func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	if !p.Runtime.hasWasi {
 		return GuestRuntime{}, false
 	}
 
+	// WASI supports two modules: Reactors and Commands
+	// we prioritize Reactors over Commands
+	// see: https://github.com/WebAssembly/WASI/blob/main/legacy/application-abi.md
+	r, ok := reactorModule(m, p)
+
+	if ok {
+		return r, ok
+	}
+
+	return commandModule(m, p)
+}
+
+// Check for `_initialize` this is used by WASI to initialize certain interfaces.
+func reactorModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
+	initFunc := m.ExportedFunction("_initialize")
+	if initFunc == nil {
+		return GuestRuntime{}, false
+	}
+
+	params := initFunc.Definition().ParamTypes()
+	if len(params) > 0 {
+		p.Logf(Trace, "_initialize function found with type %v", params)
+		return GuestRuntime{}, false
+	}
+
+	init := func() error {
+		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
+		return err
+	}
+
+	p.Logf(Trace, "WASI runtime detected")
+	p.Logf(Trace, "Reactor module detected")
+
+	return GuestRuntime{Type: Wasi, Initialize: init, Cleanup: nil}, true
+}
+
+// Check for `__wasm__call_ctors` and `__wasm_call_dtors`, this is used by WASI to
+// initialize certain interfaces.
+func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	initFunc := m.ExportedFunction("__wasm_call_ctors")
 	if initFunc == nil {
 		return GuestRuntime{}, false
@@ -98,6 +136,7 @@ func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	}
 
 	p.Logf(Trace, "WASI runtime detected")
+	p.Logf(Trace, "Command module detected")
 	cleanupFunc := m.ExportedFunction("__wasm_call_dtors")
 	if cleanupFunc != nil {
 		params := cleanupFunc.Definition().ParamTypes()
