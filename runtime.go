@@ -15,9 +15,10 @@ const (
 )
 
 type GuestRuntime struct {
-	Type       RuntimeType
-	Initialize func() error
-	Cleanup    func() error
+	Type     RuntimeType
+	InitOnce func() error
+	Init     func() error
+	Cleanup  func() error
 }
 
 func guestRuntime(p *Plugin, m api.Module) GuestRuntime {
@@ -32,16 +33,36 @@ func guestRuntime(p *Plugin, m api.Module) GuestRuntime {
 	}
 
 	p.Log(Trace, "No runtime detected")
-	return GuestRuntime{Type: None, Initialize: func() error { return nil }}
+	return GuestRuntime{Type: None, Init: func() error { return nil }}
 }
 
 // Check for Haskell runtime initialization functions
 // Initialize Haskell runtime if `hs_init` and `hs_exit` are present,
 // by calling the `hs_init` export
 func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
-	init := findFunc(m, p, "hs_init", api.ValueTypeI32, api.ValueTypeI32)
-	if init == nil {
+	initFunc := m.ExportedFunction("hs_init")
+	if initFunc == nil {
 		return GuestRuntime{}, false
+	}
+
+	params := initFunc.Definition().ParamTypes()
+
+	if len(params) != 2 || params[0] != api.ValueTypeI32 || params[1] != api.ValueTypeI32 {
+		p.Logf(Trace, "hs_init function found with type %v", params)
+	}
+
+	cleanupFunc := m.ExportedFunction("hs_exit")
+	if cleanupFunc == nil {
+		return GuestRuntime{}, false
+	}
+
+	init := func() error {
+		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
+		if err == nil {
+			p.Log(Debug, "Initialized Haskell language runtime")
+		}
+
+		return err
 	}
 
 	cleanup := findFunc(m, p, "hs_exit")
@@ -49,7 +70,7 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return GuestRuntime{}, false
 	}
 
-	return GuestRuntime{Type: Haskell, Initialize: init, Cleanup: cleanup}, true
+	return GuestRuntime{Type: Haskell, Init: init, Cleanup: cleanup}, true
 }
 
 // Check for initialization and cleanup functions defined by the WASI standard
@@ -78,7 +99,7 @@ func reactorModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Reactor module detected")
 
-	return GuestRuntime{Type: Wasi, Initialize: init, Cleanup: nil}, true
+	return GuestRuntime{Type: Wasi, InitOnce: init, Init: nil, Cleanup: nil}, true
 }
 
 // Check for `__wasm__call_ctors` and `__wasm_call_dtors`, this is used by WASI to
@@ -93,24 +114,24 @@ func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	p.Logf(Trace, "Command module detected")
 	cleanup := findFunc(m, p, "__wasm_call_dtors")
 
-	return GuestRuntime{Type: Wasi, Initialize: init, Cleanup: cleanup}, true
+	return GuestRuntime{Type: Wasi, Init: init, Cleanup: cleanup}, true
 }
 
-func findFunc(m api.Module, p *Plugin, name string, expectedParams ...byte) func() error {
+func findFunc(m api.Module, p *Plugin, name string) func() error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
 	}
 
 	params := initFunc.Definition().ParamTypes()
-	if !equal(params, expectedParams) {
+	if len(params) != 0 {
 		p.Logf(Trace, "%v function found with type %v", name, params)
 		return nil
 	}
 
 	return func() error {
 		p.Logf(Debug, "Calling %v", name)
-		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
+		_, err := initFunc.Call(p.Runtime.ctx)
 		return err
 	}
 }

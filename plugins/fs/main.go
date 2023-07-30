@@ -6,6 +6,29 @@ import (
 	"github.com/extism/go-pdk"
 )
 
+//export __wasm_call_ctors
+func __wasm_call_ctors()
+
+//export _initialize
+func _initialize() {
+	__wasm_call_ctors()
+}
+
+//export run_test
+func run_test() int32 {
+	content, err := updateFile("/mnt/test.txt")
+	if err != nil {
+		pdk.Log(pdk.LogError, err.Error())
+		return 1
+	} else {
+		mem := pdk.AllocateBytes(content)
+		// zero-copy output to host
+		pdk.OutputMemory(mem)
+	}
+
+	return 0
+}
+
 func updateFile(filename string) ([]byte, error) {
 	// Read the file and get its contents as a byte slice
 	content, err := os.ReadFile(filename)
@@ -22,14 +45,4 @@ func updateFile(filename string) ([]byte, error) {
 	return content, nil
 }
 
-func main() {
-	content, err := updateFile("/mnt/test.txt")
-	if err != nil {
-		pdk.Log(pdk.LogError, err.Error())
-		os.Exit(1)
-	} else {
-		mem := pdk.AllocateBytes(content)
-		// zero-copy output to host
-		pdk.OutputMemory(mem)
-	}
-}
+func main() {}

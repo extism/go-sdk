@@ -310,6 +310,10 @@ func NewPlugin(
 
 			p.guestRuntime = guestRuntime(&p, m)
 
+			if p.guestRuntime.InitOnce != nil {
+				p.guestRuntime.InitOnce()
+			}
+
 			return p, nil
 		}
 	}
@@ -403,8 +407,10 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
 	}
 
-	if !isStart && plugin.guestRuntime.Type != None {
-		err := plugin.guestRuntime.Initialize()
+	fmt.Printf("Runtime: [%v]\n", plugin.guestRuntime.Type)
+
+	if !isStart && plugin.guestRuntime.Init != nil {
+		err := plugin.guestRuntime.Init()
 		if err != nil {
 			return -1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
