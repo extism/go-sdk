@@ -402,7 +402,7 @@ func manifest(name string) Manifest {
 	return manifest
 }
 
-func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (Plugin, bool) {
+func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Plugin, bool) {
 	ctx := context.Background()
 	config := wasiPluginConfig()
 
@@ -410,7 +410,7 @@ func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (Plugin, boo
 
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
-		return Plugin{}, false
+		return nil, false
 	}
 
 	return plugin, true

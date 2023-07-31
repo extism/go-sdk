@@ -189,7 +189,7 @@ func NewPlugin(
 	ctx context.Context,
 	manifest Manifest,
 	config PluginConfig,
-	functions []HostFunction) (Plugin, error) {
+	functions []HostFunction) (*Plugin, error) {
 	var rconfig wazero.RuntimeConfig
 	if len(config.RuntimeConfig) == 0 {
 		rconfig = wazero.NewRuntimeConfig()
@@ -205,7 +205,7 @@ func NewPlugin(
 
 	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
 	if err != nil {
-		return Plugin{}, err
+		return nil, err
 	}
 
 	hostModules := make(map[string][]HostFunction, 0)
@@ -215,7 +215,7 @@ func NewPlugin(
 
 	env, err := buildEnvModule(ctx, rt, extism, hostModules["env"])
 	if err != nil {
-		return Plugin{}, err
+		return nil, err
 	}
 
 	c := Runtime{
@@ -241,13 +241,13 @@ func NewPlugin(
 		// TODO: take special care of `env` module host functions
 		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
 		if err != nil {
-			return Plugin{}, err
+			return nil, err
 		}
 	}
 
 	count := len(manifest.Wasm)
 	if count == 0 {
-		return Plugin{}, fmt.Errorf("Manifest can't be empty.")
+		return nil, fmt.Errorf("Manifest can't be empty.")
 	}
 
 	modules := make([]api.Module, count)
@@ -269,21 +269,21 @@ func NewPlugin(
 	for index, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData()
 		if err != nil {
-			return Plugin{}, err
+			return nil, err
 		}
 
 		if data.Hash != "" {
 			calculatedHash := calculateHash(data.Data)
 			if data.Hash != calculatedHash {
-				return Plugin{}, fmt.Errorf("Hash mismatch for module '%s'", data.Name)
+				return nil, fmt.Errorf("Hash mismatch for module '%s'", data.Name)
 			}
 		}
 
 		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, moduleConfig.WithName(data.Name))
 		if err != nil {
-			return Plugin{}, err
+			return nil, err
 		} else if count > 1 && m.Name() == "" {
-			return Plugin{}, fmt.Errorf("Module name can't be empty if manifest contains multiple modules.")
+			return nil, fmt.Errorf("Module name can't be empty if manifest contains multiple modules.")
 		}
 
 		modules[index] = m
@@ -302,7 +302,7 @@ func NewPlugin(
 
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
-			p := Plugin{
+			p := &Plugin{
 				Runtime:        &c,
 				Modules:        modules,
 				Main:           m,
@@ -315,17 +315,17 @@ func NewPlugin(
 				log:            logStd,
 				logLevel:       logLevel}
 
-			p.guestRuntime = guestRuntime(&p)
+			p.guestRuntime = guestRuntime(p)
 
 			if p.guestRuntime.InitOnce != nil {
-				p.guestRuntime.InitOnce(&p)
+				p.guestRuntime.InitOnce(p)
 			}
 
 			return p, nil
 		}
 	}
 
-	return Plugin{}, errors.New("No main module found")
+	return nil, errors.New("No main module found")
 }
 
 func (plugin *Plugin) SetInput(data []byte) error {
