@@ -16,12 +16,14 @@ const (
 
 type GuestRuntime struct {
 	Type     RuntimeType
-	InitOnce func() error
-	Init     func() error
-	Cleanup  func() error
+	InitOnce func(*Plugin) error
+	Init     func(*Plugin) error
+	Cleanup  func(*Plugin) error
 }
 
-func guestRuntime(p *Plugin, m api.Module) GuestRuntime {
+func guestRuntime(p *Plugin) GuestRuntime {
+	m := p.Main
+
 	runtime, ok := haskellRuntime(p, m)
 	if ok {
 		return runtime
@@ -33,7 +35,7 @@ func guestRuntime(p *Plugin, m api.Module) GuestRuntime {
 	}
 
 	p.Log(Trace, "No runtime detected")
-	return GuestRuntime{Type: None, Init: func() error { return nil }}
+	return GuestRuntime{Type: None, Init: func(*Plugin) error { return nil }}
 }
 
 // Check for Haskell runtime initialization functions
@@ -56,10 +58,10 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return GuestRuntime{}, false
 	}
 
-	init := func() error {
-		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
+	init := func(plugin *Plugin) error {
+		_, err := initFunc.Call(plugin.Runtime.ctx, 0, 0)
 		if err == nil {
-			p.Log(Debug, "Initialized Haskell language runtime")
+			plugin.Log(Debug, "Initialized Haskell language runtime.")
 		}
 
 		return err
@@ -70,7 +72,8 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return GuestRuntime{}, false
 	}
 
-	return GuestRuntime{Type: Haskell, Init: init, Cleanup: cleanup}, true
+	p.Log(Trace, "Haskell runtime detected")
+	return GuestRuntime{Type: Haskell, Init: init, Cleanup: nil}, true
 }
 
 // Check for initialization and cleanup functions defined by the WASI standard
@@ -117,7 +120,7 @@ func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	return GuestRuntime{Type: Wasi, Init: init, Cleanup: cleanup}, true
 }
 
-func findFunc(m api.Module, p *Plugin, name string) func() error {
+func findFunc(m api.Module, p *Plugin, name string) func(*Plugin) error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
@@ -129,9 +132,9 @@ func findFunc(m api.Module, p *Plugin, name string) func() error {
 		return nil
 	}
 
-	return func() error {
-		p.Logf(Debug, "Calling %v", name)
-		_, err := initFunc.Call(p.Runtime.ctx)
+	return func(plugin *Plugin) error {
+		plugin.Logf(Debug, "Calling %v", name)
+		_, err := initFunc.Call(plugin.Runtime.ctx)
 		return err
 	}
 }

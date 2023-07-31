@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 // TODO: test WasmFile
@@ -68,7 +69,7 @@ func TestFail(t *testing.T) {
 
 		exit, _, err := plugin.Call("run_test", []byte{})
 
-		assert.Equal(t, int32(1), exit, "Exit code must be 1")
+		assert.Equal(t, uint32(1), exit, "Exit code must be 1")
 		assert.Equal(t, "Some error message", err.Error())
 	}
 }
@@ -86,6 +87,36 @@ func TestHello(t *testing.T) {
 			expected := "Hello, world!"
 
 			assert.Equal(t, expected, actual)
+		}
+	}
+}
+
+func TestExit(t *testing.T) {
+	cases := map[string]uint32{
+		"-1":  0xffffffff, // NOTE: wazero doesn't support negative exit codes
+		"500": 500,
+		"abc": 1,
+		"":    2,
+	}
+
+	for config, expected := range cases {
+		manifest := manifest("exit.wasm")
+
+		if plugin, ok := plugin(t, manifest); ok {
+			defer plugin.Close()
+
+			if config != "" {
+				plugin.Config["code"] = config
+			}
+
+			actual, _, err := plugin.Call("_start", []byte{})
+
+			if actual != 0 {
+				assert.NotNil(t, err, fmt.Sprintf("err can't be nil. config: %v", config))
+			}
+
+			fmt.Printf("err: %v", err)
+			assert.Equal(t, expected, actual, fmt.Sprintf("exit must be %v. config: '%v'", expected, config))
 		}
 	}
 }
@@ -160,7 +191,7 @@ func TestHTTP_denied(t *testing.T) {
 
 			exit, _, err := plugin.Call("run_test", []byte{})
 
-			assert.Equal(t, int32(-1), exit, "HTTP Request must fail")
+			assert.Equal(t, uint32(1), exit, "HTTP Request must fail")
 			assert.Contains(t, err.Error(), "HTTP request to 'https://jsonplaceholder.typicode.com/todos/1' is not allowed")
 		}
 	}
@@ -236,7 +267,7 @@ func TestTimeout(t *testing.T) {
 
 		exit, _, err := plugin.Call("run_test", []byte{})
 
-		assert.Equal(t, int32(-1), exit, "Exit code must be -1")
+		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
 		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 	}
 }
@@ -263,7 +294,7 @@ func TestCancel(t *testing.T) {
 
 	exit, _, err := plugin.Call("run_test", []byte{})
 
-	assert.Equal(t, int32(-1), exit, "Exit code must be -1")
+	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
 	assert.Equal(t, "module closed with context canceled", err.Error())
 }
 
@@ -326,10 +357,31 @@ func TestCountVowels(t *testing.T) {
 	}
 }
 
+func TestHelloHaskell(t *testing.T) {
+	manifest := manifest("hello_haskell.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		plugin.Config["greeting"] = "Howdy"
+
+		exit, output, err := plugin.Call("testing", []byte("John"))
+
+		if assertCall(t, err, exit) {
+			actual := string(output)
+			expected := "Howdy, John"
+
+			assert.Equal(t, expected, actual)
+		}
+	}
+}
+
 func wasiPluginConfig() PluginConfig {
+	level := Warn
 	config := PluginConfig{
 		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:   true,
+		LogLevel:     &level,
 	}
 	return config
 }
@@ -364,7 +416,7 @@ func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (Plugin, boo
 	return plugin, true
 }
 
-func assertCall(t *testing.T, err error, exit int32) bool {
+func assertCall(t *testing.T, err error, exit uint32) bool {
 	if err != nil {
 		t.Error(err)
 		return false

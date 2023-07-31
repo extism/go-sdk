@@ -15,6 +15,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 //go:embed extism-runtime.wasm
@@ -32,6 +33,8 @@ type PluginConfig struct {
 	ModuleConfig  wazero.ModuleConfig
 	RuntimeConfig []wazero.RuntimeConfig
 	EnableWasi    bool
+	// TODO: couldn't find a better way for this, but I wonder if there is a better and more idomatic way for Option<T>
+	LogLevel *LogLevel
 }
 
 type HttpRequest struct {
@@ -187,7 +190,6 @@ func NewPlugin(
 	manifest Manifest,
 	config PluginConfig,
 	functions []HostFunction) (Plugin, error) {
-
 	var rconfig wazero.RuntimeConfig
 	if len(config.RuntimeConfig) == 0 {
 		rconfig = wazero.NewRuntimeConfig()
@@ -293,6 +295,11 @@ func NewPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
+	logLevel := Warn
+	if config.LogLevel != nil {
+		logLevel = *config.LogLevel
+	}
+
 	for i, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
 			p := Plugin{
@@ -306,12 +313,12 @@ func NewPlugin(
 				LastStatusCode: 0,
 				Timeout:        manifest.Timeout,
 				log:            logStd,
-				logLevel:       Warn}
+				logLevel:       logLevel}
 
-			p.guestRuntime = guestRuntime(&p, m)
+			p.guestRuntime = guestRuntime(&p)
 
 			if p.guestRuntime.InitOnce != nil {
-				p.guestRuntime.InitOnce()
+				p.guestRuntime.InitOnce(&p)
 			}
 
 			return p, nil
@@ -382,7 +389,7 @@ func (plugin *Plugin) FunctionExists(name string) bool {
 	return plugin.Main.ExportedFunction(name) != nil
 }
 
-func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
+func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	ctx := plugin.Runtime.ctx
 
 	if plugin.Timeout > 0 {
@@ -396,7 +403,7 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 	ctx = context.WithValue(ctx, "plugin", plugin)
 
 	if err := plugin.SetInput(data); err != nil {
-		return -1, []byte{}, err
+		return 1, []byte{}, err
 	}
 
 	isStart := name == "_start"
@@ -404,15 +411,15 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
-		return -1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
+		return 1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
+	} else if n := len(f.Definition().ResultTypes()); n > 1 {
+		return 1, []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
 	}
 
-	fmt.Printf("Runtime: [%v]\n", plugin.guestRuntime.Type)
-
 	if !isStart && plugin.guestRuntime.Init != nil {
-		err := plugin.guestRuntime.Init()
+		err := plugin.guestRuntime.Init(plugin)
 		if err != nil {
-			return -1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
+			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
 	}
 
@@ -420,23 +427,36 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 
 	res, err := f.Call(ctx)
 
-	if !isStart && plugin.guestRuntime.Cleanup != nil {
-		err := plugin.guestRuntime.Cleanup()
-		if err != nil {
-			return -1, []byte{}, errors.New(fmt.Sprintf("failed to cleanup runtime: %v", err))
+	// Try to extact WASI exit code
+	if exitErr, ok := err.(*sys.ExitError); ok {
+		exitCode := exitErr.ExitCode()
+
+		if exitCode == 0 {
+			err = nil
+		}
+
+		if len(res) == 0 {
+			res = []uint64{api.EncodeU32(exitCode)}
 		}
 	}
 
-	var rc int32
+	if !isStart && plugin.guestRuntime.Cleanup != nil {
+		err := plugin.guestRuntime.Cleanup(plugin)
+		if err != nil {
+			return 1, []byte{}, errors.New(fmt.Sprintf("failed to cleanup runtime: %v", err))
+		}
+	}
+
+	var rc uint32
 	if len(res) == 0 {
-		if name == "_start" {
-			// NOTE: main function can't return anything in Go
+		// As long as there is no error, we assume the call has succeeded
+		if err == nil {
 			rc = 0
 		} else {
-			rc = -1
+			rc = 1
 		}
 	} else {
-		rc = int32(res[0])
+		rc = api.DecodeU32(res[0])
 	}
 
 	if err != nil {
@@ -453,11 +473,10 @@ func (plugin *Plugin) Call(name string, data []byte) (int32, []byte, error) {
 
 	output, err := plugin.GetOutput()
 	if err != nil {
-		return rc, []byte{}, err
+		return rc, []byte{}, fmt.Errorf("Failed to get output: %v", err)
 	}
 
 	return rc, output, nil
-
 }
 
 func calculateHash(data []byte) string {
