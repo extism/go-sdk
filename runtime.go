@@ -73,7 +73,7 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	}
 
 	p.Log(Trace, "Haskell runtime detected")
-	return GuestRuntime{Type: Haskell, Init: init, Cleanup: nil}, true
+	return GuestRuntime{Type: Haskell, Init: init, Cleanup: cleanup}, true
 }
 
 // Check for initialization and cleanup functions defined by the WASI standard
