@@ -16,9 +16,46 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-// TODO: test WasmFile
-// TODO: test WasmUrl
-// TODO: test hash
+func TestWasmUrl(t *testing.T) {
+	url := "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm"
+	wasm := WasmUrl{
+		Url:  url,
+		Name: "code",
+		Hash: "7def5bb4aa3843a5daf5d6078f1e8540e5ef10b035a9d9387e9bd5156d2b2565",
+	}
+
+	manifest := Manifest{
+		Wasm:         []Wasm{wasm},
+		Config:       make(map[string]string),
+		AllowedHosts: []string{},
+		AllowedPaths: make(map[string]string),
+	}
+
+	_, ok := plugin(t, manifest)
+	assert.True(t, ok, "Plugin must be succussfuly created")
+}
+
+func TestHashMismatch(t *testing.T) {
+	wasm := WasmFile{
+		Path: "wasm/alloc.wasm",
+		Name: "code",
+		Hash: "------",
+	}
+
+	manifest := Manifest{
+		Wasm:         []Wasm{wasm},
+		Config:       make(map[string]string),
+		AllowedHosts: []string{},
+		AllowedPaths: make(map[string]string),
+	}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+
+	assert.NotNil(t, err, "Plugin must fail")
+}
 
 func TestAlloc(t *testing.T) {
 	manifest := manifest("alloc.wasm")
