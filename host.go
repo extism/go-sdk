@@ -21,23 +21,54 @@ type ValType = api.ValueType
 const I32 = api.ValueTypeI32
 const I64 = api.ValueTypeI64
 
-type CurrentPlugin struct {
-	plugin *Plugin
-}
+// HostFunctionCallback is a Function implemented in Go instead of a wasm binary.
+// The plugin parameter is the calling plugin, used to access memory or
+// exported functions and logging.
+//
+// The stack is includes any parameters encoded according to their ValueType.
+// Its length is the max of parameter or result length. When there are results,
+// write them in order beginning at index zero. Do not use the stack after the
+// function returns.
+//
+// Here's a typical way to read three parameters and write back one.
+//
+//	// read parameters in index order
+//	argv, argvBuf := api.DecodeU32(inputs[0]), api.DecodeU32(inputs[1])
+//
+//	// write results back to the stack in index order
+//	stack[0] = api.EncodeU32(ErrnoSuccess)
+//
+// This function can be non-deterministic or cause side effects. It also
+// has special properties not defined in the WebAssembly Core specification.
+// Notably, this uses the caller's memory (via Module.Memory). See
+// https://www.w3.org/TR/wasm-core-1/#host-functions%E2%91%A0
+//
+// To safely decode/encode values from/to the uint64 inputs/ouputs, users are encouraged to use
+// Wazero's api.EncodeXXX or api.DecodeXXX functions.
+type HostFunctionCallback func(ctx context.Context, plugin *Plugin, userData interface{}, stack []uint64)
 
-type HostFuncCallback func(ctx context.Context, plugin *CurrentPlugin, inputs []uint64) []uint64
-
+// HostFunction represents a custom function defined by the host.
+// Here's an example multiplication function that loads operands from memory:
+//
+//	mult := HostFunction{
+//		Name:      "mult",
+//		Namespace: "env",
+//		Callback: func(ctx context.Context, plugin *Plugin, userData interface{}, stack []uint64) {
+//			a := api.DecodeI32(stack[0])
+//			b := api.DecodeI32(stack[1])
+//
+//			stack[0] = api.EncodeI32(a * b)
+//		},
+//		Params:  []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+//		Results: []api.ValueType{api.ValueTypeI64},
+//	}
 type HostFunction struct {
-	Callback  HostFuncCallback
+	Callback  HostFunctionCallback
 	Name      string
 	Namespace string
 	Params    []api.ValueType
 	Results   []api.ValueType
-	// TODO: support user data
-}
-
-func (p *CurrentPlugin) Memory() api.Memory {
-	return p.plugin.Runtime.Extism.Memory()
+	UserData  interface{}
 }
 
 func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs []HostFunction) (api.Module, error) {
@@ -52,12 +83,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	for _, f := range funcs {
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-				p := CurrentPlugin{
-					plugin: plugin,
-				}
-
-				out := f.Callback(ctx, &p, stack)
-				copy(stack, out)
+				f.Callback(ctx, plugin, f.UserData, stack)
 				return
 			}
 

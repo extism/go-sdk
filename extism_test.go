@@ -127,11 +127,11 @@ func TestHost(t *testing.T) {
 	mult := HostFunction{
 		Name:      "mult",
 		Namespace: "env",
-		Callback: func(ctx context.Context, plugin *CurrentPlugin, inputs []uint64) []uint64 {
-			a := api.DecodeI32(inputs[0])
-			b := api.DecodeI32(inputs[1])
+		Callback: func(ctx context.Context, plugin *Plugin, userData interface{}, stack []uint64) {
+			a := api.DecodeI32(stack[0])
+			b := api.DecodeI32(stack[1])
 
-			return []uint64{api.EncodeI32(a * b)}
+			stack[0] = api.EncodeI32(a * b)
 		},
 		Params:  []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
 		Results: []api.ValueType{api.ValueTypeI64},

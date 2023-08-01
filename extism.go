@@ -21,6 +21,7 @@ import (
 //go:embed extism-runtime.wasm
 var extismRuntimeWasm []byte
 
+// Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
 	Wazero  wazero.Runtime
 	Extism  api.Module
@@ -29,6 +30,7 @@ type Runtime struct {
 	hasWasi bool
 }
 
+// PluginConfig contains configuration options for the Extism plugin.
 type PluginConfig struct {
 	ModuleConfig  wazero.ModuleConfig
 	RuntimeConfig []wazero.RuntimeConfig
@@ -37,12 +39,14 @@ type PluginConfig struct {
 	LogLevel *LogLevel
 }
 
+// HttpRequest represents an HTTP request to be made by the plugin.
 type HttpRequest struct {
 	Url     string
 	Headers map[string]string
 	Method  string
 }
 
+// LogLevel defines different log levels.
 type LogLevel uint8
 
 const (
@@ -54,9 +58,10 @@ const (
 	Trace
 )
 
+// Plugin is used to call WASM functions
 type Plugin struct {
 	Runtime *Runtime
-	Modules []api.Module
+	Modules map[string]api.Module
 	Main    api.Module
 	Timeout time.Duration
 	Config  map[string]string
@@ -74,10 +79,12 @@ func logStd(level LogLevel, message string) {
 	log.Printf(message)
 }
 
+// SetLogger sets a custom logging callback
 func (p *Plugin) SetLogger(logger func(LogLevel, string)) {
 	p.log = logger
 }
 
+// SetLogLevel sets the minim logging level, applies to custom logging callbacks too
 func (p *Plugin) SetLogLevel(level LogLevel) {
 	p.logLevel = level
 }
@@ -95,22 +102,26 @@ func (p *Plugin) Logf(level LogLevel, format string, args ...any) {
 	p.Log(level, message)
 }
 
+// Wasm is an interface that represents different ways of providing WebAssembly data.
 type Wasm interface {
-	ToWasmData() (WasmData, error)
+	ToWasmData(ctx context.Context) (WasmData, error)
 }
 
+// WasmData represents in-memory WebAssembly data, including its content, hash, and name.
 type WasmData struct {
 	Data []byte `json:"data"`
 	Hash string `json:"hash,omitempty"`
 	Name string `json:"name,omitempty"`
 }
 
+// WasmFile represents WebAssembly data that needs to be loaded from a file.
 type WasmFile struct {
 	Path string `json:"path"`
 	Hash string `json:"hash,omitempty"`
 	Name string `json:"name,omitempty"`
 }
 
+// WasmUrl represents WebAssembly data that needs to be fetched from a URL.
 type WasmUrl struct {
 	Url     string            `json:"url"`
 	Hash    string            `json:"hash,omitempty"`
@@ -119,27 +130,32 @@ type WasmUrl struct {
 	Method  string            `json:"method,omitempty"`
 }
 
-func (d WasmData) ToWasmData() (WasmData, error) {
+func (d WasmData) ToWasmData(ctx context.Context) (WasmData, error) {
 	return d, nil
 }
 
-func (f WasmFile) ToWasmData() (WasmData, error) {
-	data, err := ioutil.ReadFile(f.Path)
-	if err != nil {
-		return WasmData{}, err
-	}
+func (f WasmFile) ToWasmData(ctx context.Context) (WasmData, error) {
+	select {
+	case <-ctx.Done():
+		return WasmData{}, ctx.Err()
+	default:
+		data, err := ioutil.ReadFile(f.Path)
+		if err != nil {
+			return WasmData{}, err
+		}
 
-	return WasmData{
-		Data: data,
-		Hash: f.Hash,
-		Name: f.Name,
-	}, nil
+		return WasmData{
+			Data: data,
+			Hash: f.Hash,
+			Name: f.Name,
+		}, nil
+	}
 }
 
-func (u WasmUrl) ToWasmData() (WasmData, error) {
+func (u WasmUrl) ToWasmData(ctx context.Context) (WasmData, error) {
 	client := http.DefaultClient
 
-	req, err := http.NewRequest(u.Method, u.Url, nil)
+	req, err := http.NewRequestWithContext(ctx, u.Method, u.Url, nil)
 	if err != nil {
 		return WasmData{}, err
 	}
@@ -170,6 +186,7 @@ func (u WasmUrl) ToWasmData() (WasmData, error) {
 	}, nil
 }
 
+// Manifest represents the plugin's manifest, including Wasm modules and configuration.
 type Manifest struct {
 	Wasm   []Wasm `json:"wasm"`
 	Memory struct {
@@ -181,10 +198,13 @@ type Manifest struct {
 	Timeout      time.Duration     `json:"timeout_ms,omitempty"`
 }
 
+// Close closes the plugin by freeing the underlying resources.
 func (p *Plugin) Close() error {
 	return p.Runtime.Wazero.Close(p.Runtime.ctx)
 }
 
+// NewPlugin creates a new Extism plugin with the given manifest, configuration, and host functions.
+// The returned plugin can be used to call WebAssembly functions and interact with the plugin.
 func NewPlugin(
 	ctx context.Context,
 	manifest Manifest,
@@ -237,8 +257,6 @@ func NewPlugin(
 			continue
 		}
 
-		// TODO: check for colision with other module names
-		// TODO: take special care of `env` module host functions
 		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
 		if err != nil {
 			return nil, err
@@ -250,7 +268,7 @@ func NewPlugin(
 		return nil, fmt.Errorf("Manifest can't be empty.")
 	}
 
-	modules := make([]api.Module, count)
+	modules := map[string]api.Module{}
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
@@ -266,10 +284,17 @@ func NewPlugin(
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
 	moduleConfig := config.ModuleConfig.WithStartFunctions().WithFSConfig(fs)
 
-	for index, wasm := range manifest.Wasm {
-		data, err := wasm.ToWasmData()
+	for _, wasm := range manifest.Wasm {
+		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
 			return nil, err
+		}
+
+		_, okh := hostModules[data.Name]
+		_, okm := modules[data.Name]
+
+		if data.Name == "env" || okh || okm {
+			return nil, fmt.Errorf("Module name collision: '%s'", data.Name)
 		}
 
 		if data.Hash != "" {
@@ -286,7 +311,7 @@ func NewPlugin(
 			return nil, fmt.Errorf("Module name can't be empty if manifest contains multiple modules.")
 		}
 
-		modules[index] = m
+		modules[data.Name] = m
 	}
 
 	// Try to find the main module:
@@ -300,7 +325,8 @@ func NewPlugin(
 		logLevel = *config.LogLevel
 	}
 
-	for i, m := range modules {
+	i := 0
+	for _, m := range modules {
 		if m.Name() == "main" || i == len(modules)-1 {
 			p := &Plugin{
 				Runtime:        &c,
@@ -323,11 +349,14 @@ func NewPlugin(
 
 			return p, nil
 		}
+
+		i++
 	}
 
 	return nil, errors.New("No main module found")
 }
 
+// SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInput(data []byte) error {
 	_, err := plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx)
 	if err != nil {
@@ -343,6 +372,7 @@ func (plugin *Plugin) SetInput(data []byte) error {
 	return nil
 }
 
+// GetOutput retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutput() ([]byte, error) {
 	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("extism_output_offset").Call(plugin.Runtime.ctx)
 	if err != nil {
@@ -357,10 +387,12 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 	return mem, nil
 }
 
+// Memory returns the plugin's WebAssembly memory interface.
 func (plugin *Plugin) Memory() api.Memory {
 	return plugin.Runtime.Extism.ExportedMemory("memory")
 }
 
+// GetError retrieves the error message from the last WebAssembly function call, if any.
 func (plugin *Plugin) GetError() string {
 	errOffs, err := plugin.Runtime.Extism.ExportedFunction("extism_error_get").Call(plugin.Runtime.ctx)
 	if err != nil {
@@ -380,15 +412,12 @@ func (plugin *Plugin) GetError() string {
 	return string(mem)
 }
 
-type result struct {
-	rc  int32
-	err error
-}
-
+// FunctionExists returns true when the named function is present in the plugin's main module
 func (plugin *Plugin) FunctionExists(name string) bool {
 	return plugin.Main.ExportedFunction(name) != nil
 }
 
+// Call a function by name with the given input, returning the output
 func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	ctx := plugin.Runtime.ctx
 
