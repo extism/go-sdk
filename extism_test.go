@@ -358,11 +358,18 @@ func TestCountVowels(t *testing.T) {
 }
 
 func TestHelloHaskell(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
+
 	manifest := manifest("hello_haskell.wasm")
 
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
+		plugin.SetLogLevel(Trace)
 		plugin.Config["greeting"] = "Howdy"
 
 		exit, output, err := plugin.Call("testing", []byte("John"))
@@ -372,6 +379,11 @@ func TestHelloHaskell(t *testing.T) {
 			expected := "Howdy, John"
 
 			assert.Equal(t, expected, actual)
+
+			logs := buf.String()
+
+			assert.Contains(t, logs, "Initialized Haskell language runtime.")
+			assert.Contains(t, logs, "Calling hs_exit")
 		}
 	}
 }

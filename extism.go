@@ -318,7 +318,7 @@ func NewPlugin(
 			p.guestRuntime = guestRuntime(p)
 
 			if p.guestRuntime.InitOnce != nil {
-				p.guestRuntime.InitOnce(p)
+				p.guestRuntime.InitOnce()
 			}
 
 			return p, nil
@@ -417,7 +417,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	}
 
 	if !isStart && plugin.guestRuntime.Init != nil {
-		err := plugin.guestRuntime.Init(plugin)
+		err := plugin.guestRuntime.Init()
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
@@ -441,7 +441,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	}
 
 	if !isStart && plugin.guestRuntime.Cleanup != nil {
-		err := plugin.guestRuntime.Cleanup(plugin)
+		err := plugin.guestRuntime.Cleanup()
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to cleanup runtime: %v", err))
 		}

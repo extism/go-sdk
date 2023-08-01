@@ -16,9 +16,9 @@ const (
 
 type GuestRuntime struct {
 	Type     RuntimeType
-	InitOnce func(*Plugin) error
-	Init     func(*Plugin) error
-	Cleanup  func(*Plugin) error
+	InitOnce func() error
+	Init     func() error
+	Cleanup  func() error
 }
 
 func guestRuntime(p *Plugin) GuestRuntime {
@@ -35,7 +35,7 @@ func guestRuntime(p *Plugin) GuestRuntime {
 	}
 
 	p.Log(Trace, "No runtime detected")
-	return GuestRuntime{Type: None, Init: func(*Plugin) error { return nil }}
+	return GuestRuntime{Type: None, Init: func() error { return nil }}
 }
 
 // Check for Haskell runtime initialization functions
@@ -58,10 +58,10 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return GuestRuntime{}, false
 	}
 
-	init := func(plugin *Plugin) error {
-		_, err := initFunc.Call(plugin.Runtime.ctx, 0, 0)
+	init := func() error {
+		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
 		if err == nil {
-			plugin.Log(Debug, "Initialized Haskell language runtime.")
+			p.Log(Debug, "Initialized Haskell language runtime.")
 		}
 
 		return err
@@ -120,7 +120,7 @@ func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	return GuestRuntime{Type: Wasi, Init: init, Cleanup: cleanup}, true
 }
 
-func findFunc(m api.Module, p *Plugin, name string) func(*Plugin) error {
+func findFunc(m api.Module, p *Plugin, name string) func() error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
@@ -132,9 +132,9 @@ func findFunc(m api.Module, p *Plugin, name string) func(*Plugin) error {
 		return nil
 	}
 
-	return func(plugin *Plugin) error {
-		plugin.Logf(Debug, "Calling %v", name)
-		_, err := initFunc.Call(plugin.Runtime.ctx)
+	return func() error {
+		p.Logf(Debug, "Calling %v", name)
+		_, err := initFunc.Call(p.Runtime.ctx)
 		return err
 	}
 }
