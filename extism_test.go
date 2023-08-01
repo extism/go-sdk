@@ -57,6 +57,69 @@ func TestHashMismatch(t *testing.T) {
 	assert.NotNil(t, err, "Plugin must fail")
 }
 
+func TestFunctionExsits(t *testing.T) {
+	manifest := manifest("alloc.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		assert.True(t, plugin.FunctionExists("run_test"))
+		assert.False(t, plugin.FunctionExists("i_dont_exist"))
+	}
+}
+
+func TestFailOnUnknownFunction(t *testing.T) {
+	manifest := manifest("alloc.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		_, _, err := plugin.Call("i_dont_exist", []byte{})
+		assert.NotNil(t, err, "Call to unknwon function must fail")
+	}
+}
+
+func TestCallFunction(t *testing.T) {
+	manifest := manifest("count_vowels.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		cases := map[string]int{
+			"hello world": 3,
+			"aaaaaa":      6,
+			"":            0,
+			"bbbbbbb":     0,
+		}
+
+		for input, expected := range cases {
+			exit, output, err := plugin.Call("count_vowels", []byte(input))
+
+			if assertCall(t, err, exit) {
+				var actual map[string]int
+				json.Unmarshal(output, &actual)
+
+				assert.Equal(t, expected, actual["count"], "'%s' contains %v vowels", input, expected)
+			}
+		}
+	}
+}
+
+func TestClosePlugin(t *testing.T) {
+	manifest := manifest("alloc.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+
+		exit, _, err := plugin.Call("run_test", []byte{})
+		assertCall(t, err, exit)
+
+		plugin.Close()
+
+		_, _, err = plugin.Call("run_test", []byte{})
+		assert.NotNil(t, err, "Call must fail after plugin was closed")
+	}
+}
+
 func TestAlloc(t *testing.T) {
 	manifest := manifest("alloc.wasm")
 
