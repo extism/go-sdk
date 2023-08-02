@@ -215,19 +215,18 @@ func TestExit(t *testing.T) {
 				assert.NotNil(t, err, fmt.Sprintf("err can't be nil. config: %v", config))
 			}
 
-			fmt.Printf("err: %v", err)
 			assert.Equal(t, expected, actual, fmt.Sprintf("exit must be %v. config: '%v'", expected, config))
 		}
 	}
 }
 
-func TestHost(t *testing.T) {
+func TestHost_simple(t *testing.T) {
 	manifest := manifest("host.wasm")
 
 	mult := HostFunction{
 		Name:      "mult",
 		Namespace: "env",
-		Callback: func(ctx context.Context, plugin *Plugin, userData interface{}, stack []uint64) {
+		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
 			a := api.DecodeI32(stack[0])
 			b := api.DecodeI32(stack[1])
 
@@ -245,6 +244,49 @@ func TestHost(t *testing.T) {
 		if assertCall(t, err, exit) {
 			actual := string(output)
 			expected := "42 x 2 = 84"
+
+			assert.Equal(t, expected, actual)
+		}
+	}
+}
+
+func TestHost_memory(t *testing.T) {
+	manifest := manifest("host_memory.wasm")
+
+	mult := HostFunction{
+		Name:      "to_upper",
+		Namespace: "host",
+		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+			offset := stack[0]
+			buffer, err := plugin.ReadBytes(offset)
+			if err != nil {
+				panic(err)
+			}
+
+			result := bytes.ToUpper(buffer)
+			plugin.Logf(Debug, "Result: %s", result)
+
+			plugin.Free(offset)
+
+			offset, err = plugin.WriteBytes(result)
+			if err != nil {
+				panic(err)
+			}
+
+			stack[0] = offset
+		},
+		Params:  []api.ValueType{api.ValueTypeI64},
+		Results: []api.ValueType{api.ValueTypeI64},
+	}
+
+	if plugin, ok := plugin(t, manifest, mult); ok {
+		defer plugin.Close()
+
+		exit, output, err := plugin.Call("run_test", []byte("Frodo"))
+
+		if assertCall(t, err, exit) {
+			actual := string(output)
+			expected := "HELLO FRODO!"
 
 			assert.Equal(t, expected, actual)
 		}
