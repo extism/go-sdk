@@ -181,14 +181,22 @@ func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs 
 
 func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFunction) {
 	for _, f := range funcs {
+
+		// Go closures capture variables by reference, not by value.
+		// This means that if you directly use f inside the closure without creating
+		// a separate variable (closure) and assigning the value of f to it, you might run into unexpected behavior.
+		// All the closures created in the loop would end up referencing the same f, which could lead to incorrect or unintended results.
+		// See: https://github.com/extism/go-sdk/issues/5#issuecomment-1666774486
+		closure := f
+
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-				f.Callback(ctx, &CurrentPlugin{plugin}, f.UserData, stack)
+				closure.Callback(ctx, &CurrentPlugin{plugin}, closure.UserData, stack)
 				return
 			}
 
 			panic("Invalid context, `plugin` key not found")
-		}), f.Params, f.Results).Export(f.Name)
+		}), closure.Params, closure.Results).Export(closure.Name)
 	}
 }
 

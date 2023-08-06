@@ -293,6 +293,91 @@ func TestHost_memory(t *testing.T) {
 	}
 }
 
+func TestHost_multiple(t *testing.T) {
+	manifest := manifest("host_multiple.wasm")
+
+	config := PluginConfig{
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:   true,
+	}
+
+	green_message := HostFunction{
+		Name:      "hostGreenMessage",
+		Namespace: "env",
+		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+			offset := stack[0]
+			input, err := plugin.ReadString(offset)
+
+			if err != nil {
+				fmt.Println("🥵", err.Error())
+				panic(err)
+			}
+
+			message := "🟢:" + string(input)
+			offset, err = plugin.WriteString(message)
+
+			if err != nil {
+				fmt.Println("🥵", err.Error())
+				panic(err)
+			}
+
+			stack[0] = offset
+		},
+		Params:  []api.ValueType{api.ValueTypeI64},
+		Results: []api.ValueType{api.ValueTypeI64},
+	}
+
+	purple_message := HostFunction{
+		Name:      "hostPurpleMessage",
+		Namespace: "env",
+		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+			offset := stack[0]
+			input, err := plugin.ReadString(offset)
+
+			if err != nil {
+				fmt.Println("🥵", err.Error())
+				panic(err)
+			}
+
+			message := "🟣:" + string(input)
+			offset, err = plugin.WriteString(message)
+
+			if err != nil {
+				fmt.Println("🥵", err.Error())
+				panic(err)
+			}
+
+			stack[0] = offset
+		},
+		Params:  []api.ValueType{api.ValueTypeI64},
+		Results: []api.ValueType{api.ValueTypeI64},
+	}
+
+	hostFunctions := []HostFunction{
+		purple_message,
+		green_message,
+	}
+
+	ctx := context.Background()
+	pluginInst, err := NewPlugin(ctx, manifest, config, hostFunctions)
+
+	if err != nil {
+		panic(err)
+	}
+
+	_, res, err := pluginInst.Call(
+		"say_green",
+		[]byte("John Doe"),
+	)
+	assert.Equal(t, "🟢:🫱 Hey from say_green John Doe", string(res))
+
+	_, res, err = pluginInst.Call(
+		"say_purple",
+		[]byte("Jane Doe"),
+	)
+	assert.Equal(t, "🟣:👋 Hello from say_purple Jane Doe", string(res))
+}
+
 func TestHTTP_allowed(t *testing.T) {
 	manifest := manifest("http.wasm")
 	manifest.AllowedHosts = []string{"jsonplaceholder.*.com"}
