@@ -279,10 +279,15 @@ func NewPlugin(
 		fs = fs.WithDirMount(host, guest)
 	}
 
+	moduleConfig := config.ModuleConfig
+	if moduleConfig == nil {
+		moduleConfig = wazero.NewModuleConfig()
+	}
+
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
-	moduleConfig := config.ModuleConfig.WithStartFunctions().WithFSConfig(fs)
+	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
 
 	for _, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
