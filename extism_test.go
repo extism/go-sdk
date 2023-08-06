@@ -499,6 +499,29 @@ func TestCountVowels(t *testing.T) {
 	}
 }
 
+func TestMultipleCallsOutput(t *testing.T) {
+	manifest := manifest("count_vowels.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		exit, output1, err := plugin.Call("count_vowels", []byte("aaa"))
+
+		if !assertCall(t, err, exit) {
+			return
+		}
+
+		exit, output2, err := plugin.Call("count_vowels", []byte("bbb"))
+
+		if !assertCall(t, err, exit) {
+			return
+		}
+
+		assert.Equal(t, `{"count": 3}`, string(output1))
+		assert.Equal(t, `{"count": 0}`, string(output2))
+	}
+}
+
 func TestHelloHaskell(t *testing.T) {
 	var buf bytes.Buffer
 	log.SetOutput(&buf)

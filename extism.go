@@ -384,7 +384,12 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 		return []byte{}, err
 	}
 	mem, _ := plugin.Memory().Read(uint32(outputOffs[0]), uint32(outputLen[0]))
-	return mem, nil
+
+	// Make sure output is copied, because `Read` returns a write-through view
+	buffer := make([]byte, len(mem))
+	copy(buffer, mem)
+
+	return buffer, nil
 }
 
 // Memory returns the plugin's WebAssembly memory interface.
