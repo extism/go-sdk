@@ -1,6 +1,6 @@
 # Extism Go SDK
 
-For more information about hte Go SDK, please visit our docs.
+For more information about the Go SDK, please visit our docs.
 
 Join the [Discord](https://discord.gg/EGTV8Pxs) and chat with us!
 
