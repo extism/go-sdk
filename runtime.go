@@ -4,7 +4,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-// TODO: test runtime initialization/cleanup for WASI and Haskell
+// TODO: test runtime initialization for WASI and Haskell
 
 type RuntimeType uint8
 
@@ -53,11 +53,6 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		p.Logf(Trace, "hs_init function found with type %v", params)
 	}
 
-	cleanupFunc := m.ExportedFunction("hs_exit")
-	if cleanupFunc == nil {
-		return GuestRuntime{}, false
-	}
-
 	reactorInit := m.ExportedFunction("_initialize")
 
 	init := func() error {
@@ -79,7 +74,7 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	return GuestRuntime{Type: Haskell, Init: init}, true
 }
 
-// Check for initialization and cleanup functions defined by the WASI standard
+// Check for initialization functions defined by the WASI standard
 func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	if !p.Runtime.hasWasi {
 		return GuestRuntime{}, false
