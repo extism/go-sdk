@@ -435,8 +435,6 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 		return 1, []byte{}, err
 	}
 
-	isStart := name == "_start"
-
 	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
@@ -445,7 +443,8 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 		return 1, []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
 	}
 
-	if plugin.guestRuntime.Init != nil && (isStart || !plugin.guestRuntime.initialized) {
+	var isStart = name == "_start"
+	if plugin.guestRuntime.Init != nil && !isStart && !plugin.guestRuntime.initialized {
 		err := plugin.guestRuntime.Init()
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
