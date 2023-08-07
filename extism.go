@@ -58,6 +58,23 @@ const (
 	Trace
 )
 
+func (l LogLevel) String() string {
+	s := ""
+	switch l {
+	case Error:
+		s = "ERROR"
+	case Warn:
+		s = "WARN"
+	case Info:
+		s = "INFO"
+	case Debug:
+		s = "DEBUG"
+	case Trace:
+		s = "TRACE"
+	}
+	return s
+}
+
 // Plugin is used to call WASM functions
 type Plugin struct {
 	Runtime *Runtime

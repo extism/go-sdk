@@ -467,6 +467,14 @@ func TestLog_custom(t *testing.T) {
 
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
+			switch level {
+			case Info:
+				assert.Equal(t, fmt.Sprintf("%s", level), "INFO")
+			case Warn:
+				assert.Equal(t, fmt.Sprintf("%s", level), "WARN")
+			case Error:
+				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
+			}
 		})
 
 		plugin.SetLogLevel(Info)
