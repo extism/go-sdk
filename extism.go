@@ -445,11 +445,12 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 		return 1, []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
 	}
 
-	if !isStart && plugin.guestRuntime.Init != nil {
+	if plugin.guestRuntime.Init != nil && (isStart || !plugin.guestRuntime.initialized) {
 		err := plugin.guestRuntime.Init()
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
+		plugin.guestRuntime.initialized = true
 	}
 
 	plugin.Logf(Debug, "Calling function : %v", name)
@@ -466,13 +467,6 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 		if len(res) == 0 {
 			res = []uint64{api.EncodeU32(exitCode)}
-		}
-	}
-
-	if !isStart && plugin.guestRuntime.Cleanup != nil {
-		err := plugin.guestRuntime.Cleanup()
-		if err != nil {
-			return 1, []byte{}, errors.New(fmt.Sprintf("failed to cleanup runtime: %v", err))
 		}
 	}
 

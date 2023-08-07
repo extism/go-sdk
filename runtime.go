@@ -15,10 +15,10 @@ const (
 )
 
 type GuestRuntime struct {
-	Type     RuntimeType
-	InitOnce func() error
-	Init     func() error
-	Cleanup  func() error
+	Type        RuntimeType
+	InitOnce    func() error
+	Init        func() error
+	initialized bool
 }
 
 func guestRuntime(p *Plugin) GuestRuntime {
@@ -35,7 +35,7 @@ func guestRuntime(p *Plugin) GuestRuntime {
 	}
 
 	p.Log(Trace, "No runtime detected")
-	return GuestRuntime{Type: None, Init: func() error { return nil }}
+	return GuestRuntime{Type: None, Init: func() error { return nil }, initialized: true}
 }
 
 // Check for Haskell runtime initialization functions
@@ -75,13 +75,8 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return err
 	}
 
-	cleanup := findFunc(m, p, "hs_exit")
-	if cleanup == nil {
-		return GuestRuntime{}, false
-	}
-
 	p.Log(Trace, "Haskell runtime detected")
-	return GuestRuntime{Type: Haskell, Init: init, Cleanup: cleanup}, true
+	return GuestRuntime{Type: Haskell, Init: init}, true
 }
 
 // Check for initialization and cleanup functions defined by the WASI standard
@@ -110,10 +105,10 @@ func reactorModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Reactor module detected")
 
-	return GuestRuntime{Type: Wasi, InitOnce: init, Init: nil, Cleanup: nil}, true
+	return GuestRuntime{Type: Wasi, InitOnce: init, Init: nil}, true
 }
 
-// Check for `__wasm__call_ctors` and `__wasm_call_dtors`, this is used by WASI to
+// Check for `__wasm__call_ctors`, this is used by WASI to
 // initialize certain interfaces.
 func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	init := findFunc(m, p, "__wasm_call_ctors")
@@ -123,9 +118,8 @@ func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Command module detected")
-	cleanup := findFunc(m, p, "__wasm_call_dtors")
 
-	return GuestRuntime{Type: Wasi, Init: init, Cleanup: cleanup}, true
+	return GuestRuntime{Type: Wasi, Init: init}, true
 }
 
 func findFunc(m api.Module, p *Plugin, name string) func() error {
