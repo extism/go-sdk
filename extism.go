@@ -342,11 +342,6 @@ func NewPlugin(
 				logLevel:       logLevel}
 
 			p.guestRuntime = guestRuntime(p)
-
-			if p.guestRuntime.InitOnce != nil {
-				p.guestRuntime.InitOnce()
-			}
-
 			return p, nil
 		}
 

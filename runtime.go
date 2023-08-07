@@ -16,7 +16,6 @@ const (
 
 type GuestRuntime struct {
 	Type        RuntimeType
-	InitOnce    func() error
 	Init        func() error
 	initialized bool
 }
@@ -100,7 +99,7 @@ func reactorModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Reactor module detected")
 
-	return GuestRuntime{Type: Wasi, InitOnce: init, Init: nil}, true
+	return GuestRuntime{Type: Wasi, Init: init}, true
 }
 
 // Check for `__wasm__call_ctors`, this is used by WASI to
