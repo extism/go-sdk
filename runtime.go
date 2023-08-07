@@ -58,7 +58,15 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 		return GuestRuntime{}, false
 	}
 
+	reactorInit := m.ExportedFunction("_initialize")
+
 	init := func() error {
+		if reactorInit != nil {
+			_, err := reactorInit.Call(p.Runtime.ctx)
+			if err != nil {
+				p.Logf(Error, "Error running reactor _initialize: %s", err.Error())
+			}
+		}
 		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
 		if err == nil {
 			p.Log(Debug, "Initialized Haskell language runtime.")
