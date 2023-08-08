@@ -374,19 +374,20 @@ func NewPlugin(
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
-func (plugin *Plugin) SetInput(data []byte) error {
+func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
 	_, err := plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx)
 	if err != nil {
 		fmt.Println(err)
-		return errors.New("reset")
+		return 0, errors.New("reset")
 	}
+
 	ptr, err := plugin.Runtime.Extism.ExportedFunction("extism_alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	plugin.Memory().Write(uint32(ptr[0]), data)
 	plugin.Runtime.Extism.ExportedFunction("extism_input_set").Call(plugin.Runtime.ctx, ptr[0], uint64(len(data)))
-	return nil
+	return ptr[0], nil
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
@@ -453,9 +454,12 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 	ctx = context.WithValue(ctx, "plugin", plugin)
 
-	if err := plugin.SetInput(data); err != nil {
+	intputOffset, err := plugin.SetInput(data)
+	if err != nil {
 		return 1, []byte{}, err
 	}
+
+	ctx = context.WithValue(ctx, "inputOffset", intputOffset)
 
 	var f = plugin.Main.ExportedFunction(name)
 

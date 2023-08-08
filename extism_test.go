@@ -646,12 +646,12 @@ func TestHelloHaskell(t *testing.T) {
 	}
 }
 
-func BenchmarkCountVowels(b *testing.B) {
+func BenchmarkNoop(b *testing.B) {
 	ctx := context.Background()
 	cache := wazero.NewCompilationCache()
 	defer cache.Close(ctx)
 
-	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/count_vowels.wasm"}}}
+	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
 
 	config := PluginConfig{
 		EnableWasi:    true,
@@ -664,34 +664,18 @@ func BenchmarkCountVowels(b *testing.B) {
 		panic(err)
 	}
 
-	longString100 := []byte(generateRandomString(100, 42))
-	longString1k := []byte(generateRandomString(1_000, 42))
-	longString10k := []byte(generateRandomString(10_000, 42))
-
 	b.ResetTimer()
 
-	inputs := map[string][]byte{
-		"empty-string": []byte(""),
-		"aaa":          []byte("aaa"),
-		"100-chars":    longString100,
-		"1k-chars":     longString1k,
-		"10k-chars":    longString10k,
-	}
+	b.Run("noop", func(b *testing.B) {
+		b.ReportAllocs()
 
-	for k, v := range inputs {
-		b.Run(k, func(b *testing.B) {
-			input := v
-			b.SetBytes(int64(len(input)))
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				_, _, err := plugin.Call("count_vowels", input)
-				if err != nil {
-					panic(err)
-				}
+		for i := 0; i < b.N; i++ {
+			_, _, err := plugin.Call("run_test", []byte{})
+			if err != nil {
+				panic(err)
 			}
-		})
-	}
+		}
+	})
 }
 
 var (
@@ -714,12 +698,12 @@ var (
 	Match65536 = Match32768 + Match32768
 )
 
-func BenchmarkRegex(b *testing.B) {
+func BenchmarkReplace(b *testing.B) {
 	ctx := context.Background()
 	cache := wazero.NewCompilationCache()
 	defer cache.Close(ctx)
 
-	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/regex.wasm"}}}
+	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/replace.wasm"}}}
 
 	config := PluginConfig{
 		EnableWasi:    true,
@@ -735,6 +719,7 @@ func BenchmarkRegex(b *testing.B) {
 	b.ResetTimer()
 
 	inputs := map[string][]byte{
+		"empty": {},
 		"2048":  []byte(Regex2048),
 		"4096":  []byte(Regex4096),
 		"8192":  []byte(Regex8192),
@@ -743,6 +728,7 @@ func BenchmarkRegex(b *testing.B) {
 	}
 
 	expected := map[string][]byte{
+		"empty": {},
 		"2048":  []byte(Match2048),
 		"4096":  []byte(Match4096),
 		"8192":  []byte(Match8192),
@@ -765,6 +751,7 @@ func BenchmarkRegex(b *testing.B) {
 				}
 
 				if !equal(out, expected) {
+					fmt.Println(string(out))
 					panic("invalid regex match")
 				}
 			}

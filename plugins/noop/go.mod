@@ -1,4 +1,4 @@
-module github.com/extism/extism-sdk-plugins-regex
+module github.com/extism/extism-sdk-plugins-noop
 
 go 1.20
 
