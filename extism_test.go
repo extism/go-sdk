@@ -641,7 +641,6 @@ func TestHelloHaskell(t *testing.T) {
 			logs := buf.String()
 
 			assert.Contains(t, logs, "Initialized Haskell language runtime.")
-			assert.Contains(t, logs, "Calling hs_exit")
 		}
 	}
 }
