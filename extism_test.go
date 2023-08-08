@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -644,6 +645,142 @@ func TestHelloHaskell(t *testing.T) {
 			assert.Contains(t, logs, "Calling hs_exit")
 		}
 	}
+}
+
+func BenchmarkCountVowels(b *testing.B) {
+	ctx := context.Background()
+	cache := wazero.NewCompilationCache()
+	defer cache.Close(ctx)
+
+	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/count_vowels.wasm"}}}
+
+	config := PluginConfig{
+		EnableWasi:    true,
+		ModuleConfig:  wazero.NewModuleConfig(),
+		RuntimeConfig: []wazero.RuntimeConfig{wazero.NewRuntimeConfig().WithCompilationCache(cache)},
+	}
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	longString100 := []byte(generateRandomString(100, 42))
+	longString1k := []byte(generateRandomString(1_000, 42))
+	longString10k := []byte(generateRandomString(10_000, 42))
+
+	b.ResetTimer()
+
+	inputs := map[string][]byte{
+		"empty-string": []byte(""),
+		"aaa":          []byte("aaa"),
+		"100-chars":    longString100,
+		"1k-chars":     longString1k,
+		"10k-chars":    longString10k,
+	}
+
+	for k, v := range inputs {
+		b.Run(k, func(b *testing.B) {
+			input := v
+			b.SetBytes(int64(len(input)))
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				_, _, err := plugin.Call("count_vowels", input)
+				if err != nil {
+					panic(err)
+				}
+			}
+		})
+	}
+}
+
+var (
+	Regex2048 = "BYwnOjWhprPmDncp8qpQ5CY4r1RGZuqKLBowmtMCd test ETjLOG685YC4RIjXB0HadNpqYS4M7GPGUVAKRZRC1ibqQqGnuzqX2Hjosm6MKNCp5QifX7Up2phqkFqkjpSu3k59oi6M5YbTMiy4JukVFx2402IlrHU1McK7US0skB1cF0W2ZDpsypNmGJRXRMY0pPsYbw7G2a0xJnhTITXcuF5xJWR1rz5zdGZQbbjZoHZcEnveDFq5kOmCVc test DsJVHTsAlypLI9sVtbTLwmE1DG2C6AgUo3GO1DpCx3jV43oXUxaTVJqZO13AYqvNPbxizYZ5BckZFBbJybY3Vnm20Sm7nXbwZs5N2ugz3EpUQvXwqHdHWzc1T8uKPD5LTDM8UBpVoF test 9G3mWarrp43SvoidITriFhzHmyVWNd6n2LIVocr3pOai4DOlkAn7QDup6z6spMAf8UcI4wbfoSzG0k5Qy1rGBhPaJKJRW2 MC9ma3U3rnjAOBtEUHZ2qfOUpfMNgPlGpvzr4IGNNFf9RFlF7yRUBvRnYxyonIWPPiR1x1wWgxc20o5cW4GU7kytAOuGlpzpykcAxCJLLP6wJegaMhAeb8xBLpuBetNEbfcyyOcJBun5BhmFOmv8 test IvICWx2wlYZ61YDBpPcIpqnMb9MHwT8GroC1YITZBlNGBHMpAe4d2sNZe9d0Wvfbv5mMo30Bm1Pa5S3x38jgu6y0BaqZl9GhlukE9CqPJGUsJZ5suDH19WiOrvz7mXwXhi4lWm1YdwNi0xhVnXITtmKq5rikIS6dul1USgDf3TwyLYpyCG46Xj92PssJmnhPdH1WAnvXY sbs8RaemyqmPggtGNwU2JjuPjdmQRakIusv2WimN7zG8R8Pf1225IAJ2j8aiZBrxnjmrucaYOQCrLm7e2Q5q8 test HOkCEJJGHVLYJtGgHKa1PRQ5qCcsIAUdkW3yRfdulutteLe3We9z9XQvWuTYMLDPpOJqMzDNTGpTYts7AL8pFog1k82XVuMZ6ItccxOBpuzDcahH4wDqCGjak8qPVxmnrGmSsrdUHVz6SrScElMo0nOF8RIpYAVdJr5NxWIK1uzc1iIiZnbUD6uDNmBkmfec6IgK6aqnEZaGLDJXDHSYfzWUOi7y3KNPl0CghL9BId8v4040mCKMfmdthWWLJ2tpWIo1482ghiU5 2qtrzgFgYKfyfr4X6FXzN3hM3bLnuwItQrTCEp3BYz79bCAaQGhicZzqE83Mh2 test IIVID622qlEyVEGuEmNJ5JteEzbpklhTKnVMflzzWyWbZe6kIgeUr9mxWjkJGisvRbZKwfnojeC82M1nHgUa4k46x7Dw7mL3rChORjBxBMYjFeOvCsT6kEo3vPeachLUKdkExJbr9Yei0fKyOFSDlxpFhlRKuwGxXu4jGo4CzKDsVsahqzC9iGw53bHiw0V4Pwmdhzv482s3zU9XLTgQr6GuL1I0kSfh9BkVoK5fFvg1hm7ECrt6p8q3kLVjxte EK9W9q2q9etMaPLymcCRZ0XauMDzJY08JeVvovnT2g5hxE7UGW1 test YRotQUivrrXQnhEw55faznZZBU1ULVs4BfYkIkEfS91NetBhona6zrzDwMsXi0FJjdaiJ25lvetPDaMzUs0l6nfkGkVyU376mFPfPkpBKZR2z2Xwzxndi0SkUnqm8jCa7iq2oSJstTdUXtCK2xTXMIh7tiuPVftit GFYQXXI3vY QFe1xShWJgFAqYguQ8gcxMPSzMlyDaPmMuTPgFZDM0cd test NS3fTggxBa4p5jgS4S0nhae05RkYkXGzuNMXeu6IoR9PFqVFnXcBYD0Ld9otrAiqUuIGYGmAjm3Wx29va2UtIFaRhL02ckRfycz3BGfwqYl3TGtjWdKjmxn1WreRIIq5gkbWJws5VQsov0V2U8pGedj N2RDqWgh2tFiJA9fmytgRgqSnqxIwyBMgY5RnE6CZ0 test Iv4QPiWMu0oG70e4nSNtG13O test "
+	Match2048 = "BYwnOjWhprPmDncp8qpQ5CY4r1RGZuqKLBowmtMCd wasm ETjLOG685YC4RIjXB0HadNpqYS4M7GPGUVAKRZRC1ibqQqGnuzqX2Hjosm6MKNCp5QifX7Up2phqkFqkjpSu3k59oi6M5YbTMiy4JukVFx2402IlrHU1McK7US0skB1cF0W2ZDpsypNmGJRXRMY0pPsYbw7G2a0xJnhTITXcuF5xJWR1rz5zdGZQbbjZoHZcEnveDFq5kOmCVc wasm DsJVHTsAlypLI9sVtbTLwmE1DG2C6AgUo3GO1DpCx3jV43oXUxaTVJqZO13AYqvNPbxizYZ5BckZFBbJybY3Vnm20Sm7nXbwZs5N2ugz3EpUQvXwqHdHWzc1T8uKPD5LTDM8UBpVoF wasm 9G3mWarrp43SvoidITriFhzHmyVWNd6n2LIVocr3pOai4DOlkAn7QDup6z6spMAf8UcI4wbfoSzG0k5Qy1rGBhPaJKJRW2 MC9ma3U3rnjAOBtEUHZ2qfOUpfMNgPlGpvzr4IGNNFf9RFlF7yRUBvRnYxyonIWPPiR1x1wWgxc20o5cW4GU7kytAOuGlpzpykcAxCJLLP6wJegaMhAeb8xBLpuBetNEbfcyyOcJBun5BhmFOmv8 wasm IvICWx2wlYZ61YDBpPcIpqnMb9MHwT8GroC1YITZBlNGBHMpAe4d2sNZe9d0Wvfbv5mMo30Bm1Pa5S3x38jgu6y0BaqZl9GhlukE9CqPJGUsJZ5suDH19WiOrvz7mXwXhi4lWm1YdwNi0xhVnXITtmKq5rikIS6dul1USgDf3TwyLYpyCG46Xj92PssJmnhPdH1WAnvXY sbs8RaemyqmPggtGNwU2JjuPjdmQRakIusv2WimN7zG8R8Pf1225IAJ2j8aiZBrxnjmrucaYOQCrLm7e2Q5q8 wasm HOkCEJJGHVLYJtGgHKa1PRQ5qCcsIAUdkW3yRfdulutteLe3We9z9XQvWuTYMLDPpOJqMzDNTGpTYts7AL8pFog1k82XVuMZ6ItccxOBpuzDcahH4wDqCGjak8qPVxmnrGmSsrdUHVz6SrScElMo0nOF8RIpYAVdJr5NxWIK1uzc1iIiZnbUD6uDNmBkmfec6IgK6aqnEZaGLDJXDHSYfzWUOi7y3KNPl0CghL9BId8v4040mCKMfmdthWWLJ2tpWIo1482ghiU5 2qtrzgFgYKfyfr4X6FXzN3hM3bLnuwItQrTCEp3BYz79bCAaQGhicZzqE83Mh2 wasm IIVID622qlEyVEGuEmNJ5JteEzbpklhTKnVMflzzWyWbZe6kIgeUr9mxWjkJGisvRbZKwfnojeC82M1nHgUa4k46x7Dw7mL3rChORjBxBMYjFeOvCsT6kEo3vPeachLUKdkExJbr9Yei0fKyOFSDlxpFhlRKuwGxXu4jGo4CzKDsVsahqzC9iGw53bHiw0V4Pwmdhzv482s3zU9XLTgQr6GuL1I0kSfh9BkVoK5fFvg1hm7ECrt6p8q3kLVjxte EK9W9q2q9etMaPLymcCRZ0XauMDzJY08JeVvovnT2g5hxE7UGW1 wasm YRotQUivrrXQnhEw55faznZZBU1ULVs4BfYkIkEfS91NetBhona6zrzDwMsXi0FJjdaiJ25lvetPDaMzUs0l6nfkGkVyU376mFPfPkpBKZR2z2Xwzxndi0SkUnqm8jCa7iq2oSJstTdUXtCK2xTXMIh7tiuPVftit GFYQXXI3vY QFe1xShWJgFAqYguQ8gcxMPSzMlyDaPmMuTPgFZDM0cd wasm NS3fTggxBa4p5jgS4S0nhae05RkYkXGzuNMXeu6IoR9PFqVFnXcBYD0Ld9otrAiqUuIGYGmAjm3Wx29va2UtIFaRhL02ckRfycz3BGfwqYl3TGtjWdKjmxn1WreRIIq5gkbWJws5VQsov0V2U8pGedj N2RDqWgh2tFiJA9fmytgRgqSnqxIwyBMgY5RnE6CZ0 wasm Iv4QPiWMu0oG70e4nSNtG13O wasm "
+
+	Regex4096 = Regex2048 + Regex2048
+	Match4096 = Match2048 + Match2048
+
+	Regex8192 = Regex4096 + Regex4096
+	Match8192 = Match4096 + Match4096
+
+	Regex16384 = Regex8192 + Regex8192
+	Match16384 = Match8192 + Match8192
+
+	Regex32768 = Regex16384 + Regex16384
+	Match32768 = Match16384 + Match16384
+
+	Regex65536 = Regex32768 + Regex32768
+	Match65536 = Match32768 + Match32768
+)
+
+func BenchmarkRegex(b *testing.B) {
+	ctx := context.Background()
+	cache := wazero.NewCompilationCache()
+	defer cache.Close(ctx)
+
+	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/regex.wasm"}}}
+
+	config := PluginConfig{
+		EnableWasi:    true,
+		ModuleConfig:  wazero.NewModuleConfig(),
+		RuntimeConfig: []wazero.RuntimeConfig{wazero.NewRuntimeConfig().WithCompilationCache(cache)},
+	}
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	b.ResetTimer()
+
+	inputs := map[string][]byte{
+		"2048":  []byte(Regex2048),
+		"4096":  []byte(Regex4096),
+		"8192":  []byte(Regex8192),
+		"16383": []byte(Regex16384),
+		"32768": []byte(Regex32768),
+	}
+
+	expected := map[string][]byte{
+		"2048":  []byte(Match2048),
+		"4096":  []byte(Match4096),
+		"8192":  []byte(Match8192),
+		"16383": []byte(Match16384),
+		"32768": []byte(Match32768),
+	}
+
+	for k, v := range inputs {
+		expected := expected[k]
+		b.Run(k, func(b *testing.B) {
+			input := v
+			b.SetBytes(int64(len(input)))
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				_, out, err := plugin.Call("run_test", input)
+				if err != nil {
+					fmt.Println("SOMETHING BAD HAPPENED: ", err)
+					panic(err)
+				}
+
+				if !equal(out, expected) {
+					panic("invalid regex match")
+				}
+			}
+		})
+	}
+}
+
+func generateRandomString(length int, seed int64) string {
+	rand.Seed(seed)
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(result)
 }
 
 func wasiPluginConfig() PluginConfig {
