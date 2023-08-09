@@ -33,7 +33,7 @@ type Runtime struct {
 // PluginConfig contains configuration options for the Extism plugin.
 type PluginConfig struct {
 	ModuleConfig  wazero.ModuleConfig
-	RuntimeConfig []wazero.RuntimeConfig
+	RuntimeConfig wazero.RuntimeConfig
 	EnableWasi    bool
 	// TODO: couldn't find a better way for this, but I wonder if there is a better and more idomatic way for Option<T>
 	LogLevel *LogLevel
@@ -228,17 +228,17 @@ func NewPlugin(
 	config PluginConfig,
 	functions []HostFunction) (*Plugin, error) {
 	var rconfig wazero.RuntimeConfig
-	if len(config.RuntimeConfig) == 0 {
+	if config.RuntimeConfig == nil {
 		rconfig = wazero.NewRuntimeConfig()
 	} else {
-		rconfig = config.RuntimeConfig[0]
+		rconfig = config.RuntimeConfig
 	}
 
 	if manifest.Memory.MaxPages > 0 {
 		rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
 	}
 
-	rt := wazero.NewRuntimeWithConfig(ctx, rconfig.WithCloseOnContextDone(true))
+	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
 
 	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
 	if err != nil {
@@ -374,19 +374,20 @@ func NewPlugin(
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
-func (plugin *Plugin) SetInput(data []byte) error {
+func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
 	_, err := plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx)
 	if err != nil {
 		fmt.Println(err)
-		return errors.New("reset")
+		return 0, errors.New("reset")
 	}
+
 	ptr, err := plugin.Runtime.Extism.ExportedFunction("extism_alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	plugin.Memory().Write(uint32(ptr[0]), data)
 	plugin.Runtime.Extism.ExportedFunction("extism_input_set").Call(plugin.Runtime.ctx, ptr[0], uint64(len(data)))
-	return nil
+	return ptr[0], nil
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
@@ -453,9 +454,12 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 	ctx = context.WithValue(ctx, "plugin", plugin)
 
-	if err := plugin.SetInput(data); err != nil {
+	intputOffset, err := plugin.SetInput(data)
+	if err != nil {
 		return 1, []byte{}, err
 	}
+
+	ctx = context.WithValue(ctx, "inputOffset", intputOffset)
 
 	var f = plugin.Main.ExportedFunction(name)
 
