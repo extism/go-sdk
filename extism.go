@@ -33,7 +33,7 @@ type Runtime struct {
 // PluginConfig contains configuration options for the Extism plugin.
 type PluginConfig struct {
 	ModuleConfig  wazero.ModuleConfig
-	RuntimeConfig []wazero.RuntimeConfig
+	RuntimeConfig wazero.RuntimeConfig
 	EnableWasi    bool
 	// TODO: couldn't find a better way for this, but I wonder if there is a better and more idomatic way for Option<T>
 	LogLevel *LogLevel
@@ -228,17 +228,17 @@ func NewPlugin(
 	config PluginConfig,
 	functions []HostFunction) (*Plugin, error) {
 	var rconfig wazero.RuntimeConfig
-	if len(config.RuntimeConfig) == 0 {
+	if config.RuntimeConfig == nil {
 		rconfig = wazero.NewRuntimeConfig()
 	} else {
-		rconfig = config.RuntimeConfig[0]
+		rconfig = config.RuntimeConfig
 	}
 
 	if manifest.Memory.MaxPages > 0 {
 		rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
 	}
 
-	rt := wazero.NewRuntimeWithConfig(ctx, rconfig.WithCloseOnContextDone(true))
+	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
 
 	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
 	if err != nil {

@@ -495,17 +495,27 @@ func TestLog_custom(t *testing.T) {
 
 func TestTimeout(t *testing.T) {
 	manifest := manifest("sleep.wasm")
-	manifest.Config["duration"] = "3" // sleep for 3 seconds
 	manifest.Timeout = 100            // 100ms
+	manifest.Config["duration"] = "3" // sleep for 3 seconds
 
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		exit, _, err := plugin.Call("run_test", []byte{})
-
-		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
-		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
+	config := PluginConfig{
+		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:    true,
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	}
+
+	plugin, err := NewPlugin(context.Background(), manifest, config, []HostFunction{})
+
+	if err != nil {
+		t.Errorf("Could not create plugin: %v", err)
+	}
+
+	defer plugin.Close()
+
+	exit, _, err := plugin.Call("run_test", []byte{})
+
+	assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
+	assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 }
 
 func TestCancel(t *testing.T) {
@@ -513,7 +523,11 @@ func TestCancel(t *testing.T) {
 	manifest.Config["duration"] = "3" // sleep for 3 seconds
 
 	ctx, cancel := context.WithCancel(context.Background())
-	config := wasiPluginConfig()
+	config := PluginConfig{
+		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:    true,
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+	}
 
 	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
 
@@ -656,7 +670,7 @@ func BenchmarkNoop(b *testing.B) {
 	config := PluginConfig{
 		EnableWasi:    true,
 		ModuleConfig:  wazero.NewModuleConfig(),
-		RuntimeConfig: []wazero.RuntimeConfig{wazero.NewRuntimeConfig().WithCompilationCache(cache)},
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
 	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
@@ -708,7 +722,7 @@ func BenchmarkReplace(b *testing.B) {
 	config := PluginConfig{
 		EnableWasi:    true,
 		ModuleConfig:  wazero.NewModuleConfig(),
-		RuntimeConfig: []wazero.RuntimeConfig{wazero.NewRuntimeConfig().WithCompilationCache(cache)},
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
 	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
