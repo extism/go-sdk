@@ -6,21 +6,21 @@ import (
 
 // TODO: test runtime initialization for WASI and Haskell
 
-type RuntimeType uint8
+type runtimeType uint8
 
 const (
-	None RuntimeType = iota
+	None runtimeType = iota
 	Haskell
 	Wasi
 )
 
-type GuestRuntime struct {
-	Type        RuntimeType
-	Init        func() error
+type guestRuntime struct {
+	runtimeType runtimeType
+	init        func() error
 	initialized bool
 }
 
-func guestRuntime(p *Plugin) GuestRuntime {
+func detectGuestRuntime(p *Plugin) guestRuntime {
 	m := p.Main
 
 	runtime, ok := haskellRuntime(p, m)
@@ -34,16 +34,16 @@ func guestRuntime(p *Plugin) GuestRuntime {
 	}
 
 	p.Log(Trace, "No runtime detected")
-	return GuestRuntime{Type: None, Init: func() error { return nil }, initialized: true}
+	return guestRuntime{runtimeType: None, init: func() error { return nil }, initialized: true}
 }
 
 // Check for Haskell runtime initialization functions
 // Initialize Haskell runtime if `hs_init` and `hs_exit` are present,
 // by calling the `hs_init` export
-func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
+func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 	initFunc := m.ExportedFunction("hs_init")
 	if initFunc == nil {
-		return GuestRuntime{}, false
+		return guestRuntime{}, false
 	}
 
 	params := initFunc.Definition().ParamTypes()
@@ -70,13 +70,13 @@ func haskellRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 	}
 
 	p.Log(Trace, "Haskell runtime detected")
-	return GuestRuntime{Type: Haskell, Init: init}, true
+	return guestRuntime{runtimeType: Haskell, init: init}, true
 }
 
 // Check for initialization functions defined by the WASI standard
-func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
+func wasiRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 	if !p.Runtime.hasWasi {
-		return GuestRuntime{}, false
+		return guestRuntime{}, false
 	}
 
 	// WASI supports two modules: Reactors and Commands
@@ -90,30 +90,30 @@ func wasiRuntime(p *Plugin, m api.Module) (GuestRuntime, bool) {
 }
 
 // Check for `_initialize` this is used by WASI to initialize certain interfaces.
-func reactorModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
+func reactorModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 	init := findFunc(m, p, "_initialize")
 	if init == nil {
-		return GuestRuntime{}, false
+		return guestRuntime{}, false
 	}
 
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Reactor module detected")
 
-	return GuestRuntime{Type: Wasi, Init: init}, true
+	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
 
 // Check for `__wasm__call_ctors`, this is used by WASI to
 // initialize certain interfaces.
-func commandModule(m api.Module, p *Plugin) (GuestRuntime, bool) {
+func commandModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 	init := findFunc(m, p, "__wasm_call_ctors")
 	if init == nil {
-		return GuestRuntime{}, false
+		return guestRuntime{}, false
 	}
 
 	p.Logf(Trace, "WASI runtime detected")
 	p.Logf(Trace, "Command module detected")
 
-	return GuestRuntime{Type: Wasi, Init: init}, true
+	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
 
 func findFunc(m api.Module, p *Plugin, name string) func() error {
