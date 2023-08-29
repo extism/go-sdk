@@ -224,18 +224,18 @@ func TestExit(t *testing.T) {
 func TestHost_simple(t *testing.T) {
 	manifest := manifest("host.wasm")
 
-	mult := HostFunction{
-		Name:      "mult",
-		Namespace: "env",
-		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+	mult := NewHostFunctionWithStack(
+		"mult",
+		"env",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			a := api.DecodeI32(stack[0])
 			b := api.DecodeI32(stack[1])
 
 			stack[0] = api.EncodeI32(a * b)
 		},
-		Params:  []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
-		Results: []api.ValueType{api.ValueTypeI64},
-	}
+		[]api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+		api.ValueTypeI64,
+	)
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
 		defer plugin.Close()
@@ -254,10 +254,10 @@ func TestHost_simple(t *testing.T) {
 func TestHost_memory(t *testing.T) {
 	manifest := manifest("host_memory.wasm")
 
-	mult := HostFunction{
-		Name:      "to_upper",
-		Namespace: "host",
-		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+	mult := NewHostFunctionWithStack(
+		"to_upper",
+		"host",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			buffer, err := plugin.ReadBytes(offset)
 			if err != nil {
@@ -276,9 +276,9 @@ func TestHost_memory(t *testing.T) {
 
 			stack[0] = offset
 		},
-		Params:  []api.ValueType{api.ValueTypeI64},
-		Results: []api.ValueType{api.ValueTypeI64},
-	}
+		[]api.ValueType{api.ValueTypeI64},
+		api.ValueTypeI64,
+	)
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
 		defer plugin.Close()
@@ -302,10 +302,10 @@ func TestHost_multiple(t *testing.T) {
 		EnableWasi:   true,
 	}
 
-	green_message := HostFunction{
-		Name:      "hostGreenMessage",
-		Namespace: "env",
-		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+	green_message := NewHostFunctionWithStack(
+		"hostGreenMessage",
+		"env",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)
 
@@ -324,14 +324,14 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		Params:  []api.ValueType{api.ValueTypeI64},
-		Results: []api.ValueType{api.ValueTypeI64},
-	}
+		[]api.ValueType{api.ValueTypeI64},
+		api.ValueTypeI64,
+	)
 
-	purple_message := HostFunction{
-		Name:      "hostPurpleMessage",
-		Namespace: "env",
-		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+	purple_message := NewHostFunctionWithStack(
+		"hostPurpleMessage",
+		"env",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)
 
@@ -350,9 +350,9 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		Params:  []api.ValueType{api.ValueTypeI64},
-		Results: []api.ValueType{api.ValueTypeI64},
-	}
+		[]api.ValueType{api.ValueTypeI64},
+		api.ValueTypeI64,
+	)
 
 	hostFunctions := []HostFunction{
 		purple_message,

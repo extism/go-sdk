@@ -21,7 +21,7 @@ type ValType = api.ValueType
 const I32 = api.ValueTypeI32
 const I64 = api.ValueTypeI64
 
-// HostFunctionCallback is a Function implemented in Go instead of a wasm binary.
+// HostFunctionStackCallback is a Function implemented in Go instead of a wasm binary.
 // The plugin parameter is the calling plugin, used to access memory or
 // exported functions and logging.
 //
@@ -45,30 +45,47 @@ const I64 = api.ValueTypeI64
 //
 // To safely decode/encode values from/to the uint64 inputs/ouputs, users are encouraged to use
 // Wazero's api.EncodeXXX or api.DecodeXXX functions.
-type HostFunctionCallback func(ctx context.Context, p *CurrentPlugin, userData interface{}, stack []uint64)
+type HostFunctionStackCallback func(ctx context.Context, p *CurrentPlugin, stack []uint64)
 
 // HostFunction represents a custom function defined by the host.
+type HostFunction struct {
+	stackCallback HostFunctionStackCallback
+	Name          string
+	Namespace     string
+	Params        []api.ValueType
+	Returns       []api.ValueType
+}
+
+// NewHostFunctionWithStack creates a new instance of a HostFunction, which is designed
+// to provide custom functionality in a given host environment.
 // Here's an example multiplication function that loads operands from memory:
 //
-//	mult := HostFunction{
-//		Name:      "mult",
-//		Namespace: "env",
-//		Callback: func(ctx context.Context, plugin *CurrentPlugin, userData interface{}, stack []uint64) {
+//	 mult := NewHostFunctionWithStack(
+//		"mult",
+//		"env",
+//		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 //			a := api.DecodeI32(stack[0])
 //			b := api.DecodeI32(stack[1])
 //
 //			stack[0] = api.EncodeI32(a * b)
 //		},
-//		Params:  []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
-//		Results: []api.ValueType{api.ValueTypeI64},
-//	}
-type HostFunction struct {
-	Callback  HostFunctionCallback
-	Name      string
-	Namespace string
-	Params    []api.ValueType
-	Results   []api.ValueType
-	UserData  interface{}
+//		[]api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+//		api.ValueTypeI64
+//	 )
+func NewHostFunctionWithStack(
+	name string,
+	namespace string,
+	callback HostFunctionStackCallback,
+	params []api.ValueType,
+	returnType api.ValueType) HostFunction {
+
+	return HostFunction{
+		stackCallback: callback,
+		Name:          name,
+		Namespace:     namespace,
+		Params:        params,
+		Returns:       []api.ValueType{returnType},
+	}
 }
 
 type CurrentPlugin struct {
@@ -187,17 +204,16 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		// a separate variable (closure) and assigning the value of f to it, you might run into unexpected behavior.
 		// All the closures created in the loop would end up referencing the same f, which could lead to incorrect or unintended results.
 		// See: https://github.com/extism/go-sdk/issues/5#issuecomment-1666774486
-		closure := f.Callback
-		userData := f.UserData
+		closure := f.stackCallback
 
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-				closure(ctx, &CurrentPlugin{plugin}, userData, stack)
+				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return
 			}
 
 			panic("Invalid context, `plugin` key not found")
-		}), f.Params, f.Results).Export(f.Name)
+		}), f.Params, f.Returns).Export(f.Name)
 	}
 }
 

@@ -89,7 +89,7 @@ type Plugin struct {
 	LastStatusCode int
 	log            func(LogLevel, string)
 	logLevel       LogLevel
-	guestRuntime   GuestRuntime
+	guestRuntime   guestRuntime
 }
 
 func logStd(level LogLevel, message string) {
@@ -363,7 +363,7 @@ func NewPlugin(
 				log:            logStd,
 				logLevel:       logLevel}
 
-			p.guestRuntime = guestRuntime(p)
+			p.guestRuntime = detectGuestRuntime(p)
 			return p, nil
 		}
 
@@ -470,8 +470,8 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	}
 
 	var isStart = name == "_start"
-	if plugin.guestRuntime.Init != nil && !isStart && !plugin.guestRuntime.initialized {
-		err := plugin.guestRuntime.Init()
+	if plugin.guestRuntime.init != nil && !isStart && !plugin.guestRuntime.initialized {
+		err := plugin.guestRuntime.init()
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
