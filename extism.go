@@ -184,22 +184,87 @@ func (p *Plugin) GetVarBool(key string) bool {
 	return p.vars[key].(bool)
 }
 
-// GetVarRune returns the variable at key as a rune
-func (p *Plugin) GetVarRune(key string) rune {
+// GetVarRune returns the first rune decoded from variable
+// at key
+func (p *Plugin) GetVarRune(key string) (rune, error) {
 	var r rune
+	var err error
 
 	switch p.vars[key].(type) {
 	case string:
 		r, _ = utf8.DecodeRuneInString(p.vars[key].(string))
+		if r == utf8.RuneError {
+			err = fmt.Errorf("error decoding rune for key %s", key)
+		}
 	case []byte:
 		r, _ = utf8.DecodeRune(p.vars[key].([]byte))
+		if r == utf8.RuneError {
+			err = fmt.Errorf("error decoding rune for key %s", key)
+		}
 	case byte:
 		r, _ = utf8.DecodeRune([]byte{p.vars[key].(byte)})
+		if r == utf8.RuneError {
+			err = fmt.Errorf("error decoding rune for key %s", key)
+		}
 	case rune:
 		r = p.vars[key].(rune)
 	}
 
-	return r
+	if err != nil {
+		return 0, err
+	}
+
+	return r, nil
+}
+
+func (p *Plugin) GetVarRuneSlice(key string) ([]rune, error) {
+	b := make([]byte, 0)
+	var runes []rune
+	var err error
+
+	switch p.vars[key].(type) {
+	case string:
+		v := p.vars[key].(string)
+
+		runes = make([]rune, len(v))
+
+		for i, char := range v {
+			runes[i] = char
+		}
+	case []byte:
+		b = p.vars[key].([]byte)
+
+		done := false
+
+		for !done {
+			if len(b) == 0 {
+				done = true
+				continue
+			}
+
+			r, cut := utf8.DecodeRune(p.vars[key].([]byte))
+			if r == utf8.RuneError {
+				err = fmt.Errorf("error decoding rune for key %s", key)
+			}
+
+			runes = append(runes, r)
+
+			b = b[cut:]
+		}
+	case byte:
+		r, _ := utf8.DecodeRune([]byte{p.vars[key].(byte)})
+		if r == utf8.RuneError {
+			err = fmt.Errorf("error decoding rune for key %s", key)
+		}
+	case rune:
+		runes = []rune{p.vars[key].(rune)}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return runes, nil
 }
 
 // GetVarByte returns the variable at key as a byte
