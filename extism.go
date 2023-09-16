@@ -185,7 +185,9 @@ func (p *Plugin) GetVarBool(key string) bool {
 }
 
 // GetVarRune returns the first rune decoded from variable
-// at key
+// at key. If decoding  the variable returns a RuneError, this
+// will instead return a nil slice and an error specifying the
+// key used that failed to decode
 func (p *Plugin) GetVarRune(key string) (rune, error) {
 	var r rune
 	var err error
@@ -217,6 +219,11 @@ func (p *Plugin) GetVarRune(key string) (rune, error) {
 	return r, nil
 }
 
+// GetVarRuneSlice returns the variable at key completely
+// decoded into a slice of runes. If decoding part of
+// the variable returns a RuneError, this will instead
+// return a nil slice and an error specifying the key used
+// that failed to decode
 func (p *Plugin) GetVarRuneSlice(key string) ([]rune, error) {
 	b := make([]byte, 0)
 	var runes []rune
