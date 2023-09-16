@@ -212,7 +212,7 @@ type Manifest struct {
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
 	AllowedPaths map[string]string `json:"allowed_paths,omitempty"`
-	Timeout      time.Duration     `json:"timeout_ms,omitempty"`
+	Timeout      uint64            `json:"timeout_ms,omitempty"`
 }
 
 // Close closes the plugin by freeing the underlying resources.
@@ -359,7 +359,7 @@ func NewPlugin(
 				AllowedHosts:   manifest.AllowedHosts,
 				AllowedPaths:   manifest.AllowedPaths,
 				LastStatusCode: 0,
-				Timeout:        manifest.Timeout,
+				Timeout:        time.Duration(manifest.Timeout) * time.Millisecond,
 				log:            logStd,
 				logLevel:       logLevel}
 
