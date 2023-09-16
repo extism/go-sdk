@@ -1,12 +1,12 @@
 package extism
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -105,7 +105,6 @@ type Plugin struct {
 	Config         map[string]string
 	Var            map[string][]byte
 	vars           map[string]any
-	varbuf         *bytes.Buffer
 	AllowedHosts   []string
 	AllowedPaths   map[string]string
 	LastStatusCode int
@@ -139,39 +138,24 @@ func (p *Plugin) SetVar(key string, value any) error {
 		p.vars = make(map[string]any)
 	}
 
-	if p.varbuf == nil {
-		p.varbuf = bytes.NewBuffer(make([]byte, 0))
-	}
+	b, err := json.Marshal(map[string]interface{}{
+		key: value,
+	})
 
-	err := binary.Write(p.varbuf, nativeEndian, value)
 	if err != nil {
 		return err
 	}
 
-	p.Var[key] = p.varbuf.Bytes()
+	p.Var[key] = b
 	p.vars[key] = value
-
-	p.varbuf.Reset()
 
 	return nil
 }
 
 // GetVar gets the variable from the plugin with the given
-// key and reads it into data. GetVar
-// wraps encoding/binary.Read(), and thus, data must be a
-// pointer to a fixed-size value or a slice of fixed-size values.
-// If you don't know the needed size to decode the variable
-// into, use the appropriate helper method below
+// key and reads it into data
 func (p *Plugin) GetVar(key string, data any) error {
-	_, err := p.varbuf.Read(p.Var[key])
-	if err != nil {
-		return err
-	}
-
-	p.varbuf.Reset()
-
-	err = binary.Read(p.varbuf, nativeEndian, data)
-	return err
+	return json.Unmarshal(p.Var[key], data)
 }
 
 // GetVarString returns the variable at key as a string
