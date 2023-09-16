@@ -156,6 +156,24 @@ func (p *Plugin) SetVar(key string, value any) error {
 	return nil
 }
 
+// GetVar gets the variable from the plugin with the given
+// key and reads it into data. GetVar
+// wraps encoding/binary.Read(), and thus, data must be a
+// pointer to a fixed-size value or a slice of fixed-size values.
+// If you don't know the needed size to decode the variable
+// into, use the appropriate helper method below
+func (p *Plugin) GetVar(key string, data any) error {
+	_, err := p.varbuf.Read(p.Var[key])
+	if err != nil {
+		return err
+	}
+
+	p.varbuf.Reset()
+
+	err = binary.Read(p.varbuf, nativeEndian, data)
+	return err
+}
+
 // GetVarString returns the variable at key as a string
 func (p *Plugin) GetVarString(key string) string {
 	return p.vars[key].(string)
