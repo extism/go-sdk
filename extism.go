@@ -9,11 +9,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"reflect"
 	"time"
-	"unicode/utf8"
 	"unsafe"
 
 	"github.com/tetratelabs/wazero"
@@ -105,7 +107,6 @@ type Plugin struct {
 	Config         map[string]string
 	Var            map[string][]byte
 	vars           map[string]any
-	varbuf         *bytes.Buffer
 	AllowedHosts   []string
 	AllowedPaths   map[string]string
 	LastStatusCode int
@@ -128,9 +129,109 @@ func (p *Plugin) SetLogLevel(level LogLevel) {
 	p.logLevel = level
 }
 
+func checkValType(index int, value any) (any, error) {
+	var err error
+	v := reflect.ValueOf(value)
+
+	switch reflect.TypeOf(value).Kind() {
+	case reflect.Int8, reflect.Int16, reflect.Uint,
+		reflect.Uintptr, reflect.Uint16,
+		reflect.Pointer, reflect.UnsafePointer,
+		reflect.Func, reflect.Chan,
+		reflect.Complex64, reflect.Complex128,
+		reflect.Invalid:
+		err = errors.New("cannot set type as variable value")
+	case reflect.Array, reflect.Slice:
+		if v.Len() != 0 {
+			index++
+			_, iErr := checkValType(index, v.Index(0))
+			if iErr == nil {
+				vals := make([]any, v.Len())
+
+				for i := 0; i < v.Len(); i++ {
+					vals[i] = v.Index(i).Interface()
+				}
+
+				value = vals
+			} else if iErr.Error() == "is byte" {
+				vals := make([]byte, v.Len())
+
+				for i := 0; i < v.Len(); i++ {
+					vals[i] = v.Index(i).Interface().(byte)
+				}
+
+				value = vals
+			}
+		}
+	case reflect.Interface:
+		if index == 0 {
+			err = errors.New("cannot set type as variable value")
+			break
+		}
+
+		return nil, nil
+	case reflect.Uint8:
+		_, e := bytes.NewReader([]byte{value.(byte)}).ReadByte()
+
+		if e == nil && index == 0 {
+			value = []any{v.Interface()}
+			break
+		} else if e != nil && index == 0 {
+			err = errors.New("cannot set type as variable value")
+			break
+		} else {
+			return nil, errors.New("is byte")
+		}
+	case reflect.Map:
+		keys := v.MapKeys()
+
+		if keys[0].Kind() != reflect.String {
+			err = errors.New("map key invalid for setting as a variable")
+			break
+		}
+
+		if v.IsZero() || v.IsNil() {
+			break
+		}
+
+		if v.MapIndex(keys[0]).Type().Kind() != reflect.Interface {
+			val := make(map[string]interface{})
+
+			for _, key := range keys {
+				val[key.String()] = v.Interface()
+			}
+
+			value = val
+		}
+	case reflect.Struct:
+		numFields := v.NumField()
+		valType := reflect.TypeOf(value)
+
+		val := make(map[string]interface{})
+
+		for i := 0; i < numFields; i++ {
+			field := v.Field(i)
+
+			if field.CanInterface() {
+				val[valType.Field(i).Name] = field.Interface()
+			}
+		}
+
+		value = val
+	}
+
+	return value, err
+}
+
+func newPbMessage(value any) (*structpb.Value, error) {
+	return structpb.NewValue(value)
+}
+
 // SetVar converts value to a slice of bytes, and
 // adds that byte slice to the Plugin's variables
 func (p *Plugin) SetVar(key string, value any) error {
+	var err error
+
 	if p.Var == nil {
 		p.Var = make(map[string][]byte)
 	}
@@ -139,209 +240,37 @@ func (p *Plugin) SetVar(key string, value any) error {
 		p.vars = make(map[string]any)
 	}
 
-	if p.varbuf == nil {
-		p.varbuf = bytes.NewBuffer(make([]byte, 0))
-	}
-
-	err := binary.Write(p.varbuf, nativeEndian, value)
+	value, err = checkValType(0, value)
 	if err != nil {
 		return err
 	}
 
-	p.Var[key] = p.varbuf.Bytes()
-	p.vars[key] = value
+	var pb *structpb.Value
+	pb, err = structpb.NewValue(value)
 
-	p.varbuf.Reset()
+	var valBytes []byte
+	valBytes, err = proto.Marshal(pb.ProtoReflect().Interface())
+
+	p.Var[key] = valBytes
+	p.vars[key] = value
 
 	return nil
 }
 
 // GetVar gets the variable from the plugin with the given
-// key and reads it into data. GetVar
-// wraps encoding/binary.Read(), and thus, data must be a
-// pointer to a fixed-size value or a slice of fixed-size values.
-// If you don't know the needed size to decode the variable
-// into, use the appropriate helper method below
+// key and reads it into data
 func (p *Plugin) GetVar(key string, data any) error {
-	_, err := p.varbuf.Read(p.Var[key])
+	var pb *structpb.Value
+	var err error
+
+	valBytes := p.Var[key]
+
+	pb, err = structpb.NewValue(data)
 	if err != nil {
 		return err
 	}
 
-	p.varbuf.Reset()
-
-	err = binary.Read(p.varbuf, nativeEndian, data)
-	return err
-}
-
-// GetVarString returns the variable at key as a string
-func (p *Plugin) GetVarString(key string) string {
-	return p.vars[key].(string)
-}
-
-// GetVarBool returns the variable at key as a bool
-func (p *Plugin) GetVarBool(key string) bool {
-	return p.vars[key].(bool)
-}
-
-// GetVarRune returns the first rune decoded from variable
-// at key. If decoding  the variable returns a RuneError, this
-// will instead return a nil slice and an error specifying the
-// key used that failed to decode
-func (p *Plugin) GetVarRune(key string) (rune, error) {
-	var r rune
-	var err error
-
-	switch p.vars[key].(type) {
-	case string:
-		r, _ = utf8.DecodeRuneInString(p.vars[key].(string))
-		if r == utf8.RuneError {
-			err = fmt.Errorf("error decoding rune for key %s", key)
-		}
-	case []byte:
-		r, _ = utf8.DecodeRune(p.vars[key].([]byte))
-		if r == utf8.RuneError {
-			err = fmt.Errorf("error decoding rune for key %s", key)
-		}
-	case byte:
-		r, _ = utf8.DecodeRune([]byte{p.vars[key].(byte)})
-		if r == utf8.RuneError {
-			err = fmt.Errorf("error decoding rune for key %s", key)
-		}
-	case rune:
-		r = p.vars[key].(rune)
-	}
-
-	if err != nil {
-		return 0, err
-	}
-
-	return r, nil
-}
-
-// GetVarRuneSlice returns the variable at key completely
-// decoded into a slice of runes. If decoding part of
-// the variable returns a RuneError, this will instead
-// return a nil slice and an error specifying the key used
-// that failed to decode
-func (p *Plugin) GetVarRuneSlice(key string) ([]rune, error) {
-	b := make([]byte, 0)
-	var runes []rune
-	var err error
-
-	switch p.vars[key].(type) {
-	case string:
-		v := p.vars[key].(string)
-
-		runes = make([]rune, len(v))
-
-		for i, char := range v {
-			runes[i] = char
-		}
-	case []byte:
-		b = p.vars[key].([]byte)
-
-		done := false
-
-		for !done {
-			if len(b) == 0 {
-				done = true
-				continue
-			}
-
-			r, cut := utf8.DecodeRune(p.vars[key].([]byte))
-			if r == utf8.RuneError {
-				err = fmt.Errorf("error decoding rune for key %s", key)
-			}
-
-			runes = append(runes, r)
-
-			b = b[cut:]
-		}
-	case byte:
-		r, _ := utf8.DecodeRune([]byte{p.vars[key].(byte)})
-		if r == utf8.RuneError {
-			err = fmt.Errorf("error decoding rune for key %s", key)
-		}
-	case rune:
-		runes = []rune{p.vars[key].(rune)}
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return runes, nil
-}
-
-// GetVarByte returns the variable at key as a byte
-func (p *Plugin) GetVarByte(key string) byte {
-	return p.vars[key].(byte)
-}
-
-// GetVarByteSlice returns the variable at key as a []byte
-func (p *Plugin) GetVarByteSlice(key string) []byte {
-	return p.vars[key].([]byte)
-}
-
-// GetVarInt returns the variable at key as an int
-func (p *Plugin) GetVarInt(key string) int {
-	return p.vars[key].(int)
-}
-
-// GetVarInt8 returns the variable at key as an int8
-func (p *Plugin) GetVarInt8(key string) int8 {
-	return p.vars[key].(int8)
-}
-
-// GetVarInt16 returns the variable at key as an int16
-func (p *Plugin) GetVarInt16(key string) int16 {
-	return p.vars[key].(int16)
-}
-
-// GetVarInt32 returns the variable at key as an int32
-func (p *Plugin) GetVarInt32(key string) int32 {
-	return p.vars[key].(int32)
-}
-
-// GetVarInt64 returns the variable at key as an int64
-func (p *Plugin) GetVarInt64(key string) int64 {
-	return p.vars[key].(int64)
-}
-
-// GetVarUint returns the variable at key as an uint
-func (p *Plugin) GetVarUint(key string) uint {
-	return p.vars[key].(uint)
-}
-
-// GetVarUint8 returns the variable at key as an uint8
-func (p *Plugin) GetVarUint8(key string) uint8 {
-	return p.vars[key].(uint8)
-}
-
-// GetVarUint16 returns the variable at key as an uint16
-func (p *Plugin) GetVarUint16(key string) uint16 {
-	return p.vars[key].(uint16)
-}
-
-// GetVarUint32 returns the variable at key as an uint32
-func (p *Plugin) GetVarUint32(key string) uint32 {
-	return p.vars[key].(uint32)
-}
-
-// GetVarUint64 returns the variable at key as an uint64
-func (p *Plugin) GetVarUint64(key string) uint64 {
-	return p.vars[key].(uint64)
-}
-
-// GetVarFloat32 returns the variable at key as a float32
-func (p *Plugin) GetVarFloat32(key string) float32 {
-	return p.vars[key].(float32)
-}
-
-// GetVarFloat64 returns the variable at key as a float64
-func (p *Plugin) GetVarFloat64(key string) float64 {
-	return p.vars[key].(float64)
+	return proto.Unmarshal(valBytes, pb.ProtoReflect().Interface())
 }
 
 func (p *Plugin) Log(level LogLevel, message string) {
