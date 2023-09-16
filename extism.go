@@ -1,9 +1,11 @@
 package extism
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,12 +13,31 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
 )
+
+var nativeEndian binary.ByteOrder
+
+func init() {
+	buf := [2]byte{}
+	*(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
+
+	switch buf {
+	case [2]byte{0xCD, 0xAB}:
+		nativeEndian = binary.LittleEndian
+	case [2]byte{0xAB, 0xCD}:
+		nativeEndian = binary.BigEndian
+	default:
+		// TODO: panic?
+		panic("could not determine native endianness")
+	}
+}
 
 //go:embed extism-runtime.wasm
 var extismRuntimeWasm []byte
@@ -77,13 +98,14 @@ func (l LogLevel) String() string {
 
 // Plugin is used to call WASM functions
 type Plugin struct {
-	Runtime *Runtime
-	Modules map[string]api.Module
-	Main    api.Module
-	Timeout time.Duration
-	Config  map[string]string
-	// NOTE: maybe we can have some nice methods for getting/setting vars
+	Runtime        *Runtime
+	Modules        map[string]api.Module
+	Main           api.Module
+	Timeout        time.Duration
+	Config         map[string]string
 	Var            map[string][]byte
+	vars           map[string]any
+	varbuf         *bytes.Buffer
 	AllowedHosts   []string
 	AllowedPaths   map[string]string
 	LastStatusCode int
@@ -104,6 +126,132 @@ func (p *Plugin) SetLogger(logger func(LogLevel, string)) {
 // SetLogLevel sets the minim logging level, applies to custom logging callbacks too
 func (p *Plugin) SetLogLevel(level LogLevel) {
 	p.logLevel = level
+}
+
+// SetVar converts value to a slice of bytes, and
+// adds that byte slice to the Plugin's variables
+func (p *Plugin) SetVar(key string, value any) error {
+	if p.Var == nil {
+		p.Var = make(map[string][]byte)
+	}
+
+	if p.vars == nil {
+		p.vars = make(map[string]any)
+	}
+
+	if p.varbuf == nil {
+		p.varbuf = bytes.NewBuffer(make([]byte, 0))
+	}
+
+	err := binary.Write(p.varbuf, nativeEndian, value)
+	if err != nil {
+		return err
+	}
+
+	p.Var[key] = p.varbuf.Bytes()
+	p.vars[key] = value
+
+	p.varbuf.Reset()
+
+	return nil
+}
+
+// GetVarString returns the variable at key as a string
+func (p *Plugin) GetVarString(key string) string {
+	return p.vars[key].(string)
+}
+
+// GetVarBool returns the variable at key as a bool
+func (p *Plugin) GetVarBool(key string) bool {
+	return p.vars[key].(bool)
+}
+
+// GetVarRune returns the variable at key as a rune
+func (p *Plugin) GetVarRune(key string) rune {
+	var r rune
+
+	switch p.vars[key].(type) {
+	case string:
+		r, _ = utf8.DecodeRuneInString(p.vars[key].(string))
+	case []byte:
+		r, _ = utf8.DecodeRune(p.vars[key].([]byte))
+	case byte:
+		r, _ = utf8.DecodeRune([]byte{p.vars[key].(byte)})
+	case rune:
+		r = p.vars[key].(rune)
+	}
+
+	return r
+}
+
+// GetVarByte returns the variable at key as a byte
+func (p *Plugin) GetVarByte(key string) byte {
+	return p.vars[key].(byte)
+}
+
+// GetVarByteSlice returns the variable at key as a []byte
+func (p *Plugin) GetVarByteSlice(key string) []byte {
+	return p.vars[key].([]byte)
+}
+
+// GetVarInt returns the variable at key as an int
+func (p *Plugin) GetVarInt(key string) int {
+	return p.vars[key].(int)
+}
+
+// GetVarInt8 returns the variable at key as an int8
+func (p *Plugin) GetVarInt8(key string) int8 {
+	return p.vars[key].(int8)
+}
+
+// GetVarInt16 returns the variable at key as an int16
+func (p *Plugin) GetVarInt16(key string) int16 {
+	return p.vars[key].(int16)
+}
+
+// GetVarInt32 returns the variable at key as an int32
+func (p *Plugin) GetVarInt32(key string) int32 {
+	return p.vars[key].(int32)
+}
+
+// GetVarInt64 returns the variable at key as an int64
+func (p *Plugin) GetVarInt64(key string) int64 {
+	return p.vars[key].(int64)
+}
+
+// GetVarUint returns the variable at key as an uint
+func (p *Plugin) GetVarUint(key string) uint {
+	return p.vars[key].(uint)
+}
+
+// GetVarUint8 returns the variable at key as an uint8
+func (p *Plugin) GetVarUint8(key string) uint8 {
+	return p.vars[key].(uint8)
+}
+
+// GetVarUint16 returns the variable at key as an uint16
+func (p *Plugin) GetVarUint16(key string) uint16 {
+	return p.vars[key].(uint16)
+}
+
+// GetVarUint32 returns the variable at key as an uint32
+func (p *Plugin) GetVarUint32(key string) uint32 {
+	return p.vars[key].(uint32)
+}
+
+// GetVarUint64 returns the variable at key as an uint64
+func (p *Plugin) GetVarUint64(key string) uint64 {
+	return p.vars[key].(uint64)
+}
+
+// GetVarFloat32 returns the variable at key as a float32
+func (p *Plugin) GetVarFloat32(key string) float32 {
+	return p.vars[key].(float32)
+}
+
+// GetVarFloat64 returns the variable at key as a float64
+func (p *Plugin) GetVarFloat64(key string) float64 {
+	return p.vars[key].(float64)
 }
 
 func (p *Plugin) Log(level LogLevel, message string) {
