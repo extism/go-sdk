@@ -445,10 +445,8 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	ctx := plugin.Runtime.ctx
 
 	if plugin.Timeout > 0 {
-		timeout := time.Duration(plugin.Timeout) * time.Millisecond
-
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, timeout)
+		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, plugin.Timeout)
 		defer cancel()
 	}
 
