@@ -27,7 +27,7 @@ For simplicity let's load one from the web:
 manifest := extism.Manifest{
     Wasm: []extism.Wasm{
         extism.WasmUrl{
-            Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
+            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
         },
     },
 }
@@ -94,7 +94,7 @@ Plug-ins may optionally take a configuration object. This is a static way to con
 manifest := extism.Manifest{
     Wasm: []extism.Wasm{
         extism.WasmUrl{
-            Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/code.wasm",
+            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
         },
     },
     Config: map[string]string{
