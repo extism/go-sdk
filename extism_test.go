@@ -564,6 +564,15 @@ func TestVar(t *testing.T) {
 
 			assert.Equal(t, expected, actual)
 		}
+
+		exit, _, err = plugin.Call("run_test", []byte{})
+
+		if assertCall(t, err, exit) {
+			actual := uintFromLEBytes(plugin.Var["a"])
+			expected := uint(40)
+
+			assert.Equal(t, expected, actual)
+		}
 	}
 
 }
