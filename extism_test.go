@@ -564,6 +564,15 @@ func TestVar(t *testing.T) {
 
 			assert.Equal(t, expected, actual)
 		}
+
+		exit, _, err = plugin.Call("run_test", []byte{})
+
+		if assertCall(t, err, exit) {
+			actual := uintFromLEBytes(plugin.Var["a"])
+			expected := uint(40)
+
+			assert.Equal(t, expected, actual)
+		}
 	}
 
 }
@@ -619,14 +628,14 @@ func TestMultipleCallsOutput(t *testing.T) {
 			return
 		}
 
-		exit, output2, err := plugin.Call("count_vowels", []byte("bbb"))
+		exit, output2, err := plugin.Call("count_vowels", []byte("bbba"))
 
 		if !assertCall(t, err, exit) {
 			return
 		}
 
-		assert.Equal(t, `{"count": 3}`, string(output1))
-		assert.Equal(t, `{"count": 0}`, string(output2))
+		assert.Equal(t, `{"count":3,"total":3,"vowels":"aeiouAEIOU"}`, string(output1))
+		assert.Equal(t, `{"count":1,"total":4,"vowels":"aeiouAEIOU"}`, string(output2))
 	}
 }
 

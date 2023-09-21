@@ -185,7 +185,10 @@ func (p *CurrentPlugin) ReadBytes(offset uint64) ([]byte, error) {
 		return []byte{}, fmt.Errorf("Invalid memory block")
 	}
 
-	return buffer, nil
+	cpy := make([]byte, len(buffer))
+	copy(cpy, buffer)
+
+	return cpy, nil
 }
 
 func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs []HostFunction) (api.Module, error) {
