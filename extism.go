@@ -204,6 +204,7 @@ func (u WasmUrl) ToWasmData(ctx context.Context) (WasmData, error) {
 }
 
 // Manifest represents the plugin's manifest, including Wasm modules and configuration.
+// See https://extism.org/docs/concepts/manifest for schema.
 type Manifest struct {
 	Wasm   []Wasm `json:"wasm"`
 	Memory struct {
