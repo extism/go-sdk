@@ -1,10 +1,12 @@
 # Extism Go SDK
 
-> **Note**: This houses the 1.0 version of the Go SDK and is a work in progress. Please use the Go SDK in [extism/extism](https://github.com/extism/extism) until we hit 1.0.
-
 This repo houses the Go SDK for integrating with the [Extism](https://extism.org/) runtime. Install this library into your host Go applications to run Extism plugins.
 
 Join the [Discord](https://discord.gg/EGTV8Pxs) and chat with us!
+
+> **Note**: If you're unsure what Extism is or what an SDK is see our homepage: [https://extism.org](https://extism.org/).
+
+> **Note**: This houses the 1.0 version of the Go SDK and is a work in progress. Please use the Go SDK in [extism/extism](https://github.com/extism/extism) until we hit 1.0.
 
 ## Installation
 
@@ -16,14 +18,15 @@ go get github.com/extism/go-sdk
 
 ## Getting Started
 
-The primary concept in Extism is the plug-in. You can think of a plug-in as a code module. It has imports and it has exports. These imports and exports define the interface, or your API. You decide what they are called and typed, and what they do. Then the plug-in developer implements them and you can call them.
+This guide should walk you through some of the concepts in Extism and this Go library.
 
-The code for a plug-in exist as a binary wasm module. We can load this with the raw bytes or we can use the manifest to tell Extism how to load it from disk or the web.
+### Creating A Plug-in
 
-For simplicity let's load one from the web:
+The primary concept in Extism is the [plug-in](https://extism.org/docs/concepts/plug-in). You can think of a plug-in as a code module stored in a `.wasm` file.
+
+You'll normally load a plug-in from disk, but since you may not have one handy let's load a demo plug-in from the web:
 
 ```go
-// NOTE: The schema for this manifest can be found here: https://extism.org/docs/concepts/manifest/
 manifest := extism.Manifest{
     Wasm: []extism.Wasm{
         extism.WasmUrl{
@@ -37,9 +40,6 @@ config := extism.PluginConfig{
     EnableWasi: true,
 }
 
-// NOTE: if you encounter an error such as:
-// "Unable to load plugin: unknown import: wasi_snapshot_preview1::fd_write has not been defined"
-// make sure extism.PluginConfig.EnableWasi is set to `true` to provide WASI imports to your plugin.
 plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
 
 if err != nil {
@@ -47,8 +47,11 @@ if err != nil {
     os.Exit(1)
 }
 ```
+> **Note**: See [the Manifest docs](https://pkg.go.dev/github.com/extism/go-sdk#Manifest) as it has a rich schema and a lot of options.
 
-This plug-in was written in C and it does one thing, it counts vowels in a string. As such it exposes one "export" function: `count_vowels`. We can call exports using `Plugin.Call`:
+### Calling A Plug-in's Exports
+
+This plug-in was written in Rust and it does one thing, it counts vowels in a string. As such, it exposes one "export" function: `count_vowels`. We can call exports using [extism.Plugin.Call](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.Call):
 
 ```go
 exit, out, err := plugin.Call("count_vowels", data)
@@ -124,63 +127,98 @@ if err != nil {
 
 ### Host Functions
 
-Host functions can be a complicated concept. You can think of them like custom syscalls for your plug-in. You can use them to add capabilities to your plug-in through a simple interface.
+Let's extend our count-vowels example a little bit: Instead of storing the `total` in an ephemeral plug-in var, let's store it in a persistent key-value store!
 
-Another way to look at it is this: Up until now we've only invoked functions given to us by our plug-in, but what if our plug-in needs to invoke a function in our Go app? Host functions allow you to do this by passing a reference to a Go method to the plug-in.
+Wasm can't use our KV store on it's own. This is where [Host Functions](https://extism.org/docs/concepts/host-functions) come in.
 
-Let's load up a version of count vowels with a host function:
+[Host functions](https://extism.org/docs/concepts/host-functions) allow us to grant new capabilities to our plug-ins from our application. They are simply some Go functions you write which can be passed down and invoked from any language inside the plug-in.
+
+Let's load the manifest like usual but load up this `count_vowels_kvstore` plug-in:
 
 ```go
 manifest := extism.Manifest{
     Wasm: []extism.Wasm{
         extism.WasmUrl{
-            Url: "https://raw.githubusercontent.com/extism/extism/main/wasm/count-vowels-host.wasm",
+            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels_kvstore.wasm",
         },
     },
 }
 ```
 
-Unlike our original plug-in, this plug-in expects you to provide your own implementation of "is_vowel" in Go.
+> *Note*: The source code for this is [here](https://github.com/extism/plugins/blob/main/count_vowels_kvstore/src/lib.rs) and is written in rust, but it could be written in any of our PDK languages.
 
-First let's write our host function:
+Unlike our previous plug-in, this plug-in expects you to provide host functions that satisfy our its import interface for a KV store.
 
+We want to expose two functions to our plugin, `kv_write(key string, value []bytes)` which writes a bytes value to a key and `kv_read(key string) []byte` which reads the bytes at the given `key`.
 ```go
-hf := extism.NewHostFunctionWithStack(
-    "is_vowel",
+// pretend this is Redis or something :)
+kvStore := make(map[string][]byte)
+
+kvRead := extism.NewHostFunctionWithStack(
+    "kv_read",
     "env",
     func(ctx context.Context, p *extism.CurrentPlugin, stack []uint64) {
-        vowels := "AEIOUaeiou"
-
-        result := 0
-
-        r := rune(api.DecodeI32(stack[0]))
-        if strings.ContainsRune(vowels, r) {
-            result = 1
+        key, err := p.ReadString(stack[0])
+        if err != nil {
+            panic(err)
         }
 
-        stack[0] = api.EncodeI32(int32(result))
-    },
+        value, success := kvStore[key]
+        if !success {
+            value = []byte{0, 0, 0, 0}
+        }
 
-    // we need to give it the Wasm signature, it takes one i64 as input which acts as a pointer to a string
-    // and it returns an i64 which is the 0 or 1 result
-    []api.ValueType{api.ValueTypeI32},
-    api.ValueTypeI32,
+        fmt.Printf("Read %v from key=%s\n", binary.LittleEndian.Uint32(value), key)
+        stack[0], err = p.WriteBytes(value)
+    },
+    []api.ValueType{api.ValueTypeI64},
+    []api.ValueType{api.ValueTypeI64},
+)
+
+kvWrite := extism.NewHostFunctionWithStack(
+    "kv_write",
+    "env",
+    func(ctx context.Context, p *extism.CurrentPlugin, stack []uint64) {
+        key, err := p.ReadString(stack[0])
+        if err != nil {
+            panic(err)
+        }
+
+        value, err := p.ReadBytes(stack[1])
+        if err != nil {
+            panic(err)
+        }
+
+        fmt.Printf("Writing value=%v from key=%s\n", binary.LittleEndian.Uint32(value), key)
+
+        kvStore[key] = value
+    },
+    []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+    []api.ValueType{},
 )
 ```
 
-This method will be exposed to the plug-in in it's native language. We need to know the inputs and outputs and their types ahead of time. This function expects a string (single character) as the first input and expects a 0 (false) or 1 (true) in the output (returns).
+> *Note*: In order to write host functions you should get familiar with the methods on the [extism.CurrentPlugin](https://pkg.go.dev/github.com/extism/go-sdk#CurrentPlugin) type. The `p` parameter is an instance of this type.
 
 We need to pass these imports to the plug-in to create them. All imports of a plug-in must be satisfied for it to be initialized:
 
 ```go
-plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{hf});
-
-exit, out, err := plugin.Call("count_vowels", []byte("Hello, World!"))
-
-// => {"count": 3, "total": 3}
+plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{kvRead, kvWrite});
 ```
 
-Although this is a trivial example, you could imagine some more elaborate APIs for host functions. This is truly how you unleash the power of the plugin. You could, for example, imagine giving the plug-in access to APIs your app normally has like reading from a database, authenticating a user, sending messages, etc.
+Now we can invoke the event:
+
+```go
+exit, out, err := plugin.Call("count_vowels", []byte("Hello, World!"))
+// => Read from key=count-vowels"
+// => Writing value=3 from key=count-vowels"
+// => {"count": 3, "total": 3, "vowels": "aeiouAEIOU"}
+
+exit, out, err = plugin.Call("count_vowels", []byte("Hello, World!"))
+// => Read from key=count-vowels"
+// => Writing value=6 from key=count-vowels"
+// => {"count": 3, "total": 6, "vowels": "aeiouAEIOU"}
+```
 
 ## Build example plugins
 Since our [example plugins](./plugins/) are also written in Go, for compiling them we use [TinyGo](https://tinygo.org/):
