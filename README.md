@@ -6,8 +6,6 @@ Join the [Discord](https://discord.gg/EGTV8Pxs) and chat with us!
 
 > **Note**: If you're unsure what Extism is or what an SDK is see our homepage: [https://extism.org](https://extism.org/).
 
-> **Note**: This houses the 1.0 version of the Go SDK and is a work in progress. Please use the Go SDK in [extism/extism](https://github.com/extism/extism) until we hit 1.0.
-
 ## Installation
 
 Install via `go get`:
@@ -24,7 +22,7 @@ This guide should walk you through some of the concepts in Extism and this Go li
 
 The primary concept in Extism is the [plug-in](https://extism.org/docs/concepts/plug-in). You can think of a plug-in as a code module stored in a `.wasm` file.
 
-You'll normally load a plug-in from disk, but since you may not have one handy let's load a demo plug-in from the web:
+Plug-in code can come from a file on disk, object storage or any number of places. Since you may not have one handy let's load a demo plug-in from the web:
 
 ```go
 manifest := extism.Manifest{
