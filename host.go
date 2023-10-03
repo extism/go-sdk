@@ -77,14 +77,14 @@ func NewHostFunctionWithStack(
 	namespace string,
 	callback HostFunctionStackCallback,
 	params []api.ValueType,
-	returnType api.ValueType) HostFunction {
+	returnTypes []api.ValueType) HostFunction {
 
 	return HostFunction{
 		stackCallback: callback,
 		Name:          name,
 		Namespace:     namespace,
 		Params:        params,
-		Returns:       []api.ValueType{returnType},
+		Returns:       returnTypes,
 	}
 }
 
