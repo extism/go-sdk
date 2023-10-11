@@ -222,6 +222,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 
 func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, funcs []HostFunction) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism::env")
+	envBuilder := rt.NewHostModuleBuilder("env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
 		// HACK: this is necessary because the kernel is not updated yet
@@ -235,6 +236,17 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 				}
 			}), params, results).
 			Export(name)
+
+		// Register the functions in the `env` namespace too for backward compatibility
+		envBuilder.
+			NewFunctionBuilder().
+			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
+				err := f.CallWithStack(ctx, stack)
+				if err != nil {
+					panic(err)
+				}
+			}), params, results).
+			Export(fmt.Sprintf("extism_%s", name))
 	}
 
 	wrap("alloc", []ValType{I64}, []ValType{I64})
@@ -255,56 +267,32 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	wrap("memory_bytes", []ValType{}, []ValType{I64})
 
 	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			p, ok := ctx.Value("plugin").(*Plugin)
-			if !ok {
-				panic("Invalid context")
-			}
-
-			offset, ok := ctx.Value("inputOffset").(uint64)
-			if !ok {
-				panic("Invalid context")
-			}
-
-			stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0] + offset))
-			if !ok {
-				panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
-			}
-		}), []ValType{I64}, []ValType{I64}).
+		WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValType{I64}, []ValType{I64}).
 		Export("input_load_u64")
 
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			p, ok := ctx.Value("plugin").(*Plugin)
-			if !ok {
-				panic("Invalid context")
-			}
+	envBuilder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(inputLoad_u64), []ValType{I64}, []ValType{I64}).
+		Export("extism_input_load_u64")
 
-			stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0]))
-			if !ok {
-				panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
-			}
-		}), []ValType{I64}, []ValType{I64}).
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValType{I64}, []ValType{I64}).
 		Export("load_u64")
 
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			p, ok := ctx.Value("plugin").(*Plugin)
-			if !ok {
-				panic("Invalid context")
-			}
+	envBuilder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValType{I64}, []ValType{I64}).
+		Export("extism_load_u64")
 
-			offset := stack[0]
-			value := stack[1]
-			ok = p.Memory().WriteUint64Le(uint32(offset), value)
-			if !ok {
-				panic(fmt.Sprintf("could not write value '%v' at offset: %v", value, offset))
-			}
-		}), []ValType{I64, I64}, []ValType{}).
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValType{I64, I64}, []ValType{}).
 		Export("store_u64")
+
+	envBuilder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValType{I64, I64}, []ValType{}).
+		Export("extism_store_u64")
 
 	hostFunc := func(name string, f interface{}) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
+		envBuilder.NewFunctionBuilder().WithFunc(f).Export(fmt.Sprintf("extism_%s", name))
 	}
 
 	hostFunc("config_get", configGet)
@@ -313,7 +301,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
 
-	defineCustomHostFunctions(builder, funcs)
+	defineCustomHostFunctions(envBuilder, funcs)
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
@@ -337,7 +325,55 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	logFunc("log_warn", Warn)
 	logFunc("log_error", Error)
 
+	_, err := envBuilder.Instantiate(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return builder.Instantiate(ctx)
+}
+
+func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
+	p, ok := ctx.Value("plugin").(*Plugin)
+	if !ok {
+		panic("Invalid context")
+	}
+
+	offset := stack[0]
+	value := stack[1]
+	ok = p.Memory().WriteUint64Le(uint32(offset), value)
+	if !ok {
+		panic(fmt.Sprintf("could not write value '%v' at offset: %v", value, offset))
+	}
+}
+
+func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
+	p, ok := ctx.Value("plugin").(*Plugin)
+	if !ok {
+		panic("Invalid context")
+	}
+
+	stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0]))
+	if !ok {
+		panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
+	}
+}
+
+func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
+	p, ok := ctx.Value("plugin").(*Plugin)
+	if !ok {
+		panic("Invalid context")
+	}
+
+	offset, ok := ctx.Value("inputOffset").(uint64)
+	if !ok {
+		panic("Invalid context")
+	}
+
+	stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0] + offset))
+	if !ok {
+		panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
+	}
 }
 
 func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
