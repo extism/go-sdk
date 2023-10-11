@@ -221,10 +221,11 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 }
 
 func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, funcs []HostFunction) (api.Module, error) {
-	builder := rt.NewHostModuleBuilder("env")
+	builder := rt.NewHostModuleBuilder("extism::env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
-		f := extism.ExportedFunction(name)
+		// HACK: this is necessary because the kernel is not updated yet
+		f := extism.ExportedFunction(fmt.Sprintf("extism_%s", name))
 		builder.
 			NewFunctionBuilder().
 			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
@@ -236,22 +237,22 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 			Export(name)
 	}
 
-	wrap("extism_alloc", []ValType{I64}, []ValType{I64})
-	wrap("extism_free", []ValType{I64}, []ValType{})
-	wrap("extism_load_u8", []ValType{I64}, []ValType{I32})
-	wrap("extism_input_load_u8", []ValType{I64}, []ValType{I32})
-	wrap("extism_store_u64", []ValType{I64, I64}, []ValType{})
-	wrap("extism_store_u8", []ValType{I64, I32}, []ValType{})
-	wrap("extism_input_set", []ValType{I64, I64}, []ValType{})
-	wrap("extism_output_set", []ValType{I64, I64}, []ValType{})
-	wrap("extism_input_length", []ValType{}, []ValType{I64})
-	wrap("extism_output_length", []ValType{}, []ValType{I64})
-	wrap("extism_output_offset", []ValType{}, []ValType{I64})
-	wrap("extism_length", []ValType{I64}, []ValType{I64})
-	wrap("extism_reset", []ValType{}, []ValType{})
-	wrap("extism_error_set", []ValType{I64}, []ValType{})
-	wrap("extism_error_get", []ValType{}, []ValType{I64})
-	wrap("extism_memory_bytes", []ValType{}, []ValType{I64})
+	wrap("alloc", []ValType{I64}, []ValType{I64})
+	wrap("free", []ValType{I64}, []ValType{})
+	wrap("load_u8", []ValType{I64}, []ValType{I32})
+	wrap("input_load_u8", []ValType{I64}, []ValType{I32})
+	wrap("store_u64", []ValType{I64, I64}, []ValType{})
+	wrap("store_u8", []ValType{I64, I32}, []ValType{})
+	wrap("input_set", []ValType{I64, I64}, []ValType{})
+	wrap("output_set", []ValType{I64, I64}, []ValType{})
+	wrap("input_length", []ValType{}, []ValType{I64})
+	wrap("output_length", []ValType{}, []ValType{I64})
+	wrap("output_offset", []ValType{}, []ValType{I64})
+	wrap("length", []ValType{I64}, []ValType{I64})
+	wrap("reset", []ValType{}, []ValType{})
+	wrap("error_set", []ValType{I64}, []ValType{})
+	wrap("error_get", []ValType{}, []ValType{I64})
+	wrap("memory_bytes", []ValType{}, []ValType{I64})
 
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -270,7 +271,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 				panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
 			}
 		}), []ValType{I64}, []ValType{I64}).
-		Export("extism_input_load_u64")
+		Export("input_load_u64")
 
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -284,7 +285,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 				panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
 			}
 		}), []ValType{I64}, []ValType{I64}).
-		Export("extism_load_u64")
+		Export("load_u64")
 
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -300,17 +301,17 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 				panic(fmt.Sprintf("could not write value '%v' at offset: %v", value, offset))
 			}
 		}), []ValType{I64, I64}, []ValType{}).
-		Export("extism_store_u64")
+		Export("store_u64")
 
 	hostFunc := func(name string, f interface{}) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
 	}
 
-	hostFunc("extism_config_get", configGet)
-	hostFunc("extism_var_get", varGet)
-	hostFunc("extism_var_set", varSet)
-	hostFunc("extism_http_request", httpRequest)
-	hostFunc("extism_http_status_code", httpStatusCode)
+	hostFunc("config_get", configGet)
+	hostFunc("var_get", varGet)
+	hostFunc("var_set", varSet)
+	hostFunc("http_request", httpRequest)
+	hostFunc("http_status_code", httpStatusCode)
 
 	defineCustomHostFunctions(builder, funcs)
 
@@ -331,10 +332,10 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 		})
 	}
 
-	logFunc("extism_log_debug", Debug)
-	logFunc("extism_log_info", Info)
-	logFunc("extism_log_warn", Warn)
-	logFunc("extism_log_error", Error)
+	logFunc("log_debug", Debug)
+	logFunc("log_info", Info)
+	logFunc("log_warn", Warn)
+	logFunc("log_error", Error)
 
 	return builder.Instantiate(ctx)
 }
