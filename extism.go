@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -301,6 +302,9 @@ func NewPlugin(
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
 	}
+
+	// TODO: test if this is needed
+	moduleConfig.WithArgs(os.Args[0])
 
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
