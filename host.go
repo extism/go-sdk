@@ -221,7 +221,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 }
 
 func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, funcs []HostFunction) (api.Module, error) {
-	builder := rt.NewHostModuleBuilder("extism:env")
+	builder := rt.NewHostModuleBuilder("extism:host/env")
 	envBuilder := rt.NewHostModuleBuilder("env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
