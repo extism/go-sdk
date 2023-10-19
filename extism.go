@@ -376,29 +376,29 @@ func NewPlugin(
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
-	_, err := plugin.Runtime.Extism.ExportedFunction("extism_reset").Call(plugin.Runtime.ctx)
+	_, err := plugin.Runtime.Extism.ExportedFunction("reset").Call(plugin.Runtime.ctx)
 	if err != nil {
 		fmt.Println(err)
 		return 0, errors.New("reset")
 	}
 
-	ptr, err := plugin.Runtime.Extism.ExportedFunction("extism_alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
+	ptr, err := plugin.Runtime.Extism.ExportedFunction("alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
 	if err != nil {
 		return 0, err
 	}
 	plugin.Memory().Write(uint32(ptr[0]), data)
-	plugin.Runtime.Extism.ExportedFunction("extism_input_set").Call(plugin.Runtime.ctx, ptr[0], uint64(len(data)))
+	plugin.Runtime.Extism.ExportedFunction("input_set").Call(plugin.Runtime.ctx, ptr[0], uint64(len(data)))
 	return ptr[0], nil
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutput() ([]byte, error) {
-	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("extism_output_offset").Call(plugin.Runtime.ctx)
+	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("output_offset").Call(plugin.Runtime.ctx)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	outputLen, err := plugin.Runtime.Extism.ExportedFunction("extism_output_length").Call(plugin.Runtime.ctx)
+	outputLen, err := plugin.Runtime.Extism.ExportedFunction("output_length").Call(plugin.Runtime.ctx)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -418,7 +418,7 @@ func (plugin *Plugin) Memory() api.Memory {
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
 func (plugin *Plugin) GetError() string {
-	errOffs, err := plugin.Runtime.Extism.ExportedFunction("extism_error_get").Call(plugin.Runtime.ctx)
+	errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(plugin.Runtime.ctx)
 	if err != nil {
 		return ""
 	}
@@ -427,7 +427,7 @@ func (plugin *Plugin) GetError() string {
 		return ""
 	}
 
-	errLen, err := plugin.Runtime.Extism.ExportedFunction("extism_length").Call(plugin.Runtime.ctx, errOffs[0])
+	errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(plugin.Runtime.ctx, errOffs[0])
 	if err != nil {
 		return ""
 	}

@@ -111,7 +111,7 @@ func (p *CurrentPlugin) Memory() api.Memory {
 
 // Alloc a new memory block of the given length, returning its offset
 func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("extism_alloc").Call(p.plugin.Runtime.ctx, uint64(n))
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(p.plugin.Runtime.ctx, uint64(n))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -123,7 +123,7 @@ func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
 
 // Free the memory block specified by the given offset
 func (p *CurrentPlugin) Free(offset uint64) error {
-	_, err := p.plugin.Runtime.Extism.ExportedFunction("extism_free").Call(p.plugin.Runtime.ctx, uint64(offset))
+	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(p.plugin.Runtime.ctx, uint64(offset))
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (p *CurrentPlugin) Free(offset uint64) error {
 
 // Length returns the number of bytes allocated at the specified offset
 func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("extism_length").Call(p.plugin.Runtime.ctx, uint64(offs))
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(p.plugin.Runtime.ctx, uint64(offs))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -225,8 +225,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	envBuilder := rt.NewHostModuleBuilder("env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
-		// HACK: this is necessary because the kernel is not updated yet
-		f := extism.ExportedFunction(fmt.Sprintf("extism_%s", name))
+		f := extism.ExportedFunction(name)
 		builder.
 			NewFunctionBuilder().
 			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
