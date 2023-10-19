@@ -241,10 +241,14 @@ func NewPlugin(
 
 	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
 
-	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
+	log.Println("IN GO_SDK now seeting env var")
+
+	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism").WithEnv("PYTHONPATH", "/plugin").WithArgs("/Users/ben/dylibso/python-pdk/wasm-wrapper-c/target/wasm32-wasi/wasm-wrapper-c.wasm"))
 	if err != nil {
 		return nil, err
 	}
+
+	log.Println(extism)
 
 	hostModules := make(map[string][]HostFunction, 0)
 	for _, f := range functions {
@@ -305,7 +309,7 @@ func NewPlugin(
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
-	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
+	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs).WithArgs("/dummy.wasm")
 
 	for _, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
