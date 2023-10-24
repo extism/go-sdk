@@ -4,8 +4,6 @@ This repo houses the Go SDK for integrating with the [Extism](https://extism.org
 
 Join the [Discord](https://discord.gg/EGTV8Pxs) and chat with us!
 
-> **Note**: If you're unsure what Extism is or what an SDK is see our homepage: [https://extism.org](https://extism.org/).
-
 ## Installation
 
 Install via `go get`:
