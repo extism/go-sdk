@@ -22,7 +22,7 @@ func TestWasmUrl(t *testing.T) {
 	wasm := WasmUrl{
 		Url:  url,
 		Name: "code",
-		Hash: "7def5bb4aa3843a5daf5d6078f1e8540e5ef10b035a9d9387e9bd5156d2b2565",
+		Hash: "0c1779c48f56f94b3e3624d76f55e38215870c59ccb3d41f6ba8b2bc22f218f5",
 	}
 
 	manifest := Manifest{
