@@ -167,8 +167,8 @@ kvRead := extism.NewHostFunctionWithStack(
         fmt.Printf("Read %v from key=%s\n", binary.LittleEndian.Uint32(value), key)
         stack[0], err = p.WriteBytes(value)
     },
-    []api.ValueType{api.ValueTypeI64},
-    []api.ValueType{api.ValueTypeI64},
+    []api.ValueType{extism.PTR},
+    []api.ValueType{extism.PTR},
 )
 
 kvWrite := extism.NewHostFunctionWithStack(
@@ -189,7 +189,7 @@ kvWrite := extism.NewHostFunctionWithStack(
 
         kvStore[key] = value
     },
-    []api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
+    []api.ValueType{extism.PTR, extism.PTR},
     []api.ValueType{},
 )
 ```
