@@ -233,8 +233,8 @@ func TestHost_simple(t *testing.T) {
 
 			stack[0] = api.EncodeI32(a * b)
 		},
-		[]api.ValueType{api.ValueTypeI64, api.ValueTypeI64},
-		[]api.ValueType{api.ValueTypeI64},
+		[]api.ValueType{PTR, PTR},
+		[]api.ValueType{PTR},
 	)
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
@@ -276,8 +276,8 @@ func TestHost_memory(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{api.ValueTypeI64},
-		[]api.ValueType{api.ValueTypeI64},
+		[]api.ValueType{PTR},
+		[]api.ValueType{PTR},
 	)
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
@@ -324,8 +324,8 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{api.ValueTypeI64},
-		[]api.ValueType{api.ValueTypeI64},
+		[]api.ValueType{PTR},
+		[]api.ValueType{PTR},
 	)
 
 	purple_message := NewHostFunctionWithStack(
@@ -350,8 +350,8 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{api.ValueTypeI64},
-		[]api.ValueType{api.ValueTypeI64},
+		[]api.ValueType{PTR},
+		[]api.ValueType{PTR},
 	)
 
 	hostFunctions := []HostFunction{

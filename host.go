@@ -20,6 +20,7 @@ type ValType = api.ValueType
 
 const I32 = api.ValueTypeI32
 const I64 = api.ValueTypeI64
+const PTR = I64
 
 // HostFunctionStackCallback is a Function implemented in Go instead of a wasm binary.
 // The plugin parameter is the calling plugin, used to access memory or
