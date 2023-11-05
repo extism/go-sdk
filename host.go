@@ -221,9 +221,8 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	}
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, funcs []HostFunction) (api.Module, error) {
+func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
-	envBuilder := rt.NewHostModuleBuilder("env")
 
 	wrap := func(name string, params []ValType, results []ValType) {
 		f := extism.ExportedFunction(name)
@@ -236,17 +235,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 				}
 			}), params, results).
 			Export(name)
-
-		// Register the functions in the `env` namespace too for backward compatibility
-		envBuilder.
-			NewFunctionBuilder().
-			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
-				err := f.CallWithStack(ctx, stack)
-				if err != nil {
-					panic(err)
-				}
-			}), params, results).
-			Export(fmt.Sprintf("extism_%s", name))
 	}
 
 	wrap("alloc", []ValType{I64}, []ValType{I64})
@@ -270,29 +258,16 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 		WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValType{I64}, []ValType{I64}).
 		Export("input_load_u64")
 
-	envBuilder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(inputLoad_u64), []ValType{I64}, []ValType{I64}).
-		Export("extism_input_load_u64")
-
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValType{I64}, []ValType{I64}).
 		Export("load_u64")
-
-	envBuilder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValType{I64}, []ValType{I64}).
-		Export("extism_load_u64")
 
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValType{I64, I64}, []ValType{}).
 		Export("store_u64")
 
-	envBuilder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValType{I64, I64}, []ValType{}).
-		Export("extism_store_u64")
-
 	hostFunc := func(name string, f interface{}) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
-		envBuilder.NewFunctionBuilder().WithFunc(f).Export(fmt.Sprintf("extism_%s", name))
 	}
 
 	hostFunc("config_get", configGet)
@@ -300,8 +275,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	hostFunc("var_set", varSet)
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
-
-	defineCustomHostFunctions(envBuilder, funcs)
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
@@ -324,11 +297,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module, f
 	logFunc("log_info", Info)
 	logFunc("log_warn", Warn)
 	logFunc("log_error", Error)
-
-	_, err := envBuilder.Instantiate(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	return builder.Instantiate(ctx)
 }
