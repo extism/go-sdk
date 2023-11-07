@@ -251,7 +251,7 @@ func NewPlugin(
 		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
 	}
 
-	env, err := buildEnvModule(ctx, rt, extism, hostModules["env"])
+	env, err := buildEnvModule(ctx, rt, extism)
 	if err != nil {
 		return nil, err
 	}
@@ -270,11 +270,6 @@ func NewPlugin(
 	}
 
 	for name, funcs := range hostModules {
-		// `env` host functions are handled by `buildEnvModule
-		if name == "env" {
-			continue
-		}
-
 		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
 		if err != nil {
 			return nil, err
