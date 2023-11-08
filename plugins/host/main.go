@@ -6,7 +6,7 @@ import (
 	"github.com/extism/go-pdk"
 )
 
-//go:wasm-module env
+//go:wasm-module extism:host/user
 //export mult
 func mult(x, y uint64) uint64
 

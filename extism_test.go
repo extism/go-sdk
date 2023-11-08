@@ -226,7 +226,6 @@ func TestHost_simple(t *testing.T) {
 
 	mult := NewHostFunctionWithStack(
 		"mult",
-		"env",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			a := api.DecodeI32(stack[0])
 			b := api.DecodeI32(stack[1])
@@ -256,7 +255,6 @@ func TestHost_memory(t *testing.T) {
 
 	mult := NewHostFunctionWithStack(
 		"to_upper",
-		"host",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			buffer, err := plugin.ReadBytes(offset)
@@ -279,6 +277,8 @@ func TestHost_memory(t *testing.T) {
 		[]api.ValueType{PTR},
 		[]api.ValueType{PTR},
 	)
+
+	mult.SetNamespace("host")
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
 		defer plugin.Close()
@@ -304,7 +304,6 @@ func TestHost_multiple(t *testing.T) {
 
 	green_message := NewHostFunctionWithStack(
 		"hostGreenMessage",
-		"env",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)
@@ -330,7 +329,6 @@ func TestHost_multiple(t *testing.T) {
 
 	purple_message := NewHostFunctionWithStack(
 		"hostPurpleMessage",
-		"env",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)

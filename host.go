@@ -57,13 +57,16 @@ type HostFunction struct {
 	Returns       []api.ValueType
 }
 
+func (f *HostFunction) SetNamespace(namespace string) {
+	f.Namespace = namespace
+}
+
 // NewHostFunctionWithStack creates a new instance of a HostFunction, which is designed
 // to provide custom functionality in a given host environment.
 // Here's an example multiplication function that loads operands from memory:
 //
 //	 mult := NewHostFunctionWithStack(
 //		"mult",
-//		"env",
 //		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
 //			a := api.DecodeI32(stack[0])
 //			b := api.DecodeI32(stack[1])
@@ -75,7 +78,6 @@ type HostFunction struct {
 //	 )
 func NewHostFunctionWithStack(
 	name string,
-	namespace string,
 	callback HostFunctionStackCallback,
 	params []api.ValueType,
 	returnTypes []api.ValueType) HostFunction {
@@ -83,7 +85,7 @@ func NewHostFunctionWithStack(
 	return HostFunction{
 		stackCallback: callback,
 		Name:          name,
-		Namespace:     namespace,
+		Namespace:     "extism:host/user",
 		Params:        params,
 		Returns:       returnTypes,
 	}
