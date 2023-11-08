@@ -152,7 +152,6 @@ kvStore := make(map[string][]byte)
 
 kvRead := extism.NewHostFunctionWithStack(
     "kv_read",
-    "env",
     func(ctx context.Context, p *extism.CurrentPlugin, stack []uint64) {
         key, err := p.ReadString(stack[0])
         if err != nil {
@@ -173,7 +172,6 @@ kvRead := extism.NewHostFunctionWithStack(
 
 kvWrite := extism.NewHostFunctionWithStack(
     "kv_write",
-    "env",
     func(ctx context.Context, p *extism.CurrentPlugin, stack []uint64) {
         key, err := p.ReadString(stack[0])
         if err != nil {
