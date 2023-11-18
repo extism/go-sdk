@@ -33,7 +33,7 @@ func detectGuestRuntime(p *Plugin) guestRuntime {
 		return runtime
 	}
 
-	p.Log(Trace, "No runtime detected")
+	p.Log(LogLevelTrace, "No runtime detected")
 	return guestRuntime{runtimeType: None, init: func() error { return nil }, initialized: true}
 }
 
@@ -49,7 +49,7 @@ func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 	params := initFunc.Definition().ParamTypes()
 
 	if len(params) != 2 || params[0] != api.ValueTypeI32 || params[1] != api.ValueTypeI32 {
-		p.Logf(Trace, "hs_init function found with type %v", params)
+		p.Logf(LogLevelTrace, "hs_init function found with type %v", params)
 	}
 
 	reactorInit := m.ExportedFunction("_initialize")
@@ -58,18 +58,18 @@ func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 		if reactorInit != nil {
 			_, err := reactorInit.Call(p.Runtime.ctx)
 			if err != nil {
-				p.Logf(Error, "Error running reactor _initialize: %s", err.Error())
+				p.Logf(LogLevelError, "Error running reactor _initialize: %s", err.Error())
 			}
 		}
 		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
 		if err == nil {
-			p.Log(Debug, "Initialized Haskell language runtime.")
+			p.Log(LogLevelDebug, "Initialized Haskell language runtime.")
 		}
 
 		return err
 	}
 
-	p.Log(Trace, "Haskell runtime detected")
+	p.Log(LogLevelTrace, "Haskell runtime detected")
 	return guestRuntime{runtimeType: Haskell, init: init}, true
 }
 
@@ -96,8 +96,8 @@ func reactorModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 		return guestRuntime{}, false
 	}
 
-	p.Logf(Trace, "WASI runtime detected")
-	p.Logf(Trace, "Reactor module detected")
+	p.Logf(LogLevelTrace, "WASI runtime detected")
+	p.Logf(LogLevelTrace, "Reactor module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
@@ -110,8 +110,8 @@ func commandModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 		return guestRuntime{}, false
 	}
 
-	p.Logf(Trace, "WASI runtime detected")
-	p.Logf(Trace, "Command module detected")
+	p.Logf(LogLevelTrace, "WASI runtime detected")
+	p.Logf(LogLevelTrace, "Command module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
@@ -124,12 +124,12 @@ func findFunc(m api.Module, p *Plugin, name string) func() error {
 
 	params := initFunc.Definition().ParamTypes()
 	if len(params) != 0 {
-		p.Logf(Trace, "%v function found with type %v", name, params)
+		p.Logf(LogLevelTrace, "%v function found with type %v", name, params)
 		return nil
 	}
 
 	return func() error {
-		p.Logf(Debug, "Calling %v", name)
+		p.Logf(LogLevelDebug, "Calling %v", name)
 		_, err := initFunc.Call(p.Runtime.ctx)
 		return err
 	}

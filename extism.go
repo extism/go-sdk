@@ -7,9 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -35,8 +36,7 @@ type PluginConfig struct {
 	ModuleConfig  wazero.ModuleConfig
 	RuntimeConfig wazero.RuntimeConfig
 	EnableWasi    bool
-	// TODO: couldn't find a better way for this, but I wonder if there is a better and more idomatic way for Option<T>
-	LogLevel *LogLevel
+	LogLevel      LogLevel
 }
 
 // HttpRequest represents an HTTP request to be made by the plugin.
@@ -50,26 +50,26 @@ type HttpRequest struct {
 type LogLevel uint8
 
 const (
-	Off LogLevel = iota
-	Error
-	Warn
-	Info
-	Debug
-	Trace
+	LogLevelOff LogLevel = iota
+	LogLevelError
+	LogLevelWarn
+	LogLevelInfo
+	LogLevelDebug
+	LogLevelTrace
 )
 
 func (l LogLevel) String() string {
 	s := ""
 	switch l {
-	case Error:
+	case LogLevelError:
 		s = "ERROR"
-	case Warn:
+	case LogLevelWarn:
 		s = "WARN"
-	case Info:
+	case LogLevelInfo:
 		s = "INFO"
-	case Debug:
+	case LogLevelDebug:
 		s = "DEBUG"
-	case Trace:
+	case LogLevelTrace:
 		s = "TRACE"
 	}
 	return s
@@ -156,7 +156,7 @@ func (f WasmFile) ToWasmData(ctx context.Context) (WasmData, error) {
 	case <-ctx.Done():
 		return WasmData{}, ctx.Err()
 	default:
-		data, err := ioutil.ReadFile(f.Path)
+		data, err := os.ReadFile(f.Path)
 		if err != nil {
 			return WasmData{}, err
 		}
@@ -191,7 +191,7 @@ func (u WasmUrl) ToWasmData(ctx context.Context) (WasmData, error) {
 		return WasmData{}, errors.New("failed to fetch Wasm data from URL")
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return WasmData{}, err
 	}
@@ -338,9 +338,9 @@ func NewPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
-	logLevel := Warn
-	if config.LogLevel != nil {
-		logLevel = *config.LogLevel
+	logLevel := LogLevelWarn
+	if config.LogLevel != LogLevelOff {
+		logLevel = config.LogLevel
 	}
 
 	i := 0
@@ -472,7 +472,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 		plugin.guestRuntime.initialized = true
 	}
 
-	plugin.Logf(Debug, "Calling function : %v", name)
+	plugin.Logf(LogLevelDebug, "Calling function : %v", name)
 
 	res, err := f.Call(ctx)
 

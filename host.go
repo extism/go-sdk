@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -295,10 +294,10 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 		})
 	}
 
-	logFunc("log_debug", Debug)
-	logFunc("log_info", Info)
-	logFunc("log_warn", Warn)
-	logFunc("log_error", Error)
+	logFunc("log_debug", LogLevelDebug)
+	logFunc("log_info", LogLevelInfo)
+	logFunc("log_warn", LogLevelWarn)
+	logFunc("log_error", LogLevelError)
 
 	return builder.Instantiate(ctx)
 }
@@ -502,7 +501,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 		// TODO: make this limit configurable
 		// TODO: the rust implementation silently truncates the response body, should we keep the behavior here?
 		limiter := http.MaxBytesReader(nil, resp.Body, 1024*1024*50)
-		body, err := ioutil.ReadAll(limiter)
+		body, err := io.ReadAll(limiter)
 		if err != nil {
 			panic(err)
 		}
