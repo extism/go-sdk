@@ -263,7 +263,7 @@ func TestHost_memory(t *testing.T) {
 			}
 
 			result := bytes.ToUpper(buffer)
-			plugin.Logf(Debug, "Result: %s", result)
+			plugin.Logf(LogLevelDebug, "Result: %s", result)
 
 			plugin.Free(offset)
 
@@ -467,24 +467,24 @@ func TestLog_custom(t *testing.T) {
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
 			switch level {
-			case Info:
+			case LogLevelInfo:
 				assert.Equal(t, fmt.Sprintf("%s", level), "INFO")
-			case Warn:
+			case LogLevelWarn:
 				assert.Equal(t, fmt.Sprintf("%s", level), "WARN")
-			case Error:
+			case LogLevelError:
 				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
 			}
 		})
 
-		plugin.SetLogLevel(Info)
+		plugin.SetLogLevel(LogLevelInfo)
 
 		exit, _, err := plugin.Call("run_test", []byte{})
 
 		if assertCall(t, err, exit) {
 			expected := []LogEntry{
-				{message: "this is an info log", level: Info},
-				{message: "this is a warning log", level: Warn},
-				{message: "this is an erorr log", level: Error}}
+				{message: "this is an info log", level: LogLevelInfo},
+				{message: "this is a warning log", level: LogLevelWarn},
+				{message: "this is an erorr log", level: LogLevelError}}
 
 			assert.Equal(t, expected, actual)
 		}
@@ -649,7 +649,7 @@ func TestHelloHaskell(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		plugin.SetLogLevel(Trace)
+		plugin.SetLogLevel(LogLevelTrace)
 		plugin.Config["greeting"] = "Howdy"
 
 		exit, output, err := plugin.Call("testing", []byte("John"))
@@ -791,11 +791,9 @@ func generateRandomString(length int, seed int64) string {
 }
 
 func wasiPluginConfig() PluginConfig {
-	level := Warn
 	config := PluginConfig{
 		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:   true,
-		LogLevel:     &level,
 	}
 	return config
 }
