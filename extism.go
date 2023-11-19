@@ -50,7 +50,8 @@ type HttpRequest struct {
 type LogLevel uint8
 
 const (
-	LogLevelOff LogLevel = iota
+	logLevelUnset LogLevel = iota // unexporting this intentionally so its only ever the default
+	LogLevelOff
 	LogLevelError
 	LogLevelWarn
 	LogLevelInfo
@@ -339,7 +340,7 @@ func NewPlugin(
 	//  - Otherwise the last module listed is the main module
 
 	logLevel := LogLevelWarn
-	if config.LogLevel != LogLevelOff {
+	if config.LogLevel != logLevelUnset {
 		logLevel = config.LogLevel
 	}
 
