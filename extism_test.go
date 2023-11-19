@@ -794,7 +794,6 @@ func wasiPluginConfig() PluginConfig {
 	config := PluginConfig{
 		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:   true,
-		LogLevel:     LogLevelOff, // This is also the zero-value and used when not specified.
 	}
 	return config
 }
