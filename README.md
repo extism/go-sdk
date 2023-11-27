@@ -12,6 +12,10 @@ Install via `go get`:
 go get github.com/extism/go-sdk
 ```
 
+## Reference Docs
+
+You can find the reference docs at [https://pkg.go.dev/github.com/extism/go-sdk](https://pkg.go.dev/github.com/extism/go-sdk).
+
 ## Getting Started
 
 This guide should walk you through some of the concepts in Extism and this Go library.
@@ -20,45 +24,68 @@ This guide should walk you through some of the concepts in Extism and this Go li
 
 The primary concept in Extism is the [plug-in](https://extism.org/docs/concepts/plug-in). You can think of a plug-in as a code module stored in a `.wasm` file.
 
-Plug-in code can come from a file on disk, object storage or any number of places. Since you may not have one handy let's load a demo plug-in from the web:
+Plug-in code can come from a file on disk, object storage or any number of places. Since you may not have one handy let's load a demo plug-in from the web. Let's
+start by creating a main func and loading an Extism Plug-in:
 
 ```go
-manifest := extism.Manifest{
-    Wasm: []extism.Wasm{
-        extism.WasmUrl{
-            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
-        },
-    },
-}
+package main
 
-ctx := context.Background()
-config := extism.PluginConfig{
-    EnableWasi: true,
-}
+import (
+	"context"
+	"fmt"
+	"github.com/extism/go-sdk"
+	"os"
+)
 
-plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+func main() {
+	manifest := extism.Manifest{
+		Wasm: []extism.Wasm{
+			extism.WasmUrl{
+				Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
+			},
+		},
+	}
 
-if err != nil {
-    fmt.Printf("Failed to initialize plugin: %v\n", err)
-    os.Exit(1)
+	ctx := context.Background()
+	config := extism.PluginConfig{}
+	plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+
+	if err != nil {
+		fmt.Printf("Failed to initialize plugin: %v\n", err)
+		os.Exit(1)
+	}
 }
 ```
 > **Note**: See [the Manifest docs](https://pkg.go.dev/github.com/extism/go-sdk#Manifest) as it has a rich schema and a lot of options.
 
 ### Calling A Plug-in's Exports
 
-This plug-in was written in Rust and it does one thing, it counts vowels in a string. As such, it exposes one "export" function: `count_vowels`. We can call exports using [extism.Plugin.Call](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.Call):
-
-```go
-exit, out, err := plugin.Call("count_vowels", data)
-if err != nil {
-    fmt.Println(err)
-    os.Exit(int(exit))
-}
-
-response := string(out)
+This plug-in was written in Rust and it does one thing, it counts vowels in a string. As such, it exposes one "export" function: `count_vowels`. We can call exports using [extism.Plugin.Call](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.Call).
+Let's add that code to our main func:
 
 // => {"count": 3, "total": 3, "vowels": "aeiouAEIOU"}
+
+```go
+func main() {
+    // ...
+
+	data := []byte("Hello, World!")
+	exit, out, err := plugin.Call("count_vowels", data)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(int(exit))
+	}
+
+	response := string(out)
+	fmt.Println(response)
+}
+```
+
+Running this should print out the JSON vowel count report:
+
+```bash
+$ go run main.go
+# => {"count":3,"total":3,"vowels":"aeiouAEIOU"}
 ```
 
 All exports have a simple interface of optional bytes in, and optional bytes out. This plug-in happens to take a string and return a JSON encoded string with a report of results.
@@ -68,19 +95,26 @@ All exports have a simple interface of optional bytes in, and optional bytes out
 Plug-ins may be stateful or stateless. Plug-ins can maintain state b/w calls by the use of variables. Our count vowels plug-in remembers the total number of vowels it's ever counted in the "total" key in the result. You can see this by making subsequent calls to the export:
 
 ```go
-exit, out, err := plugin.Call("count_vowels", []byte("Hello, World!"))
-if err != nil {
-    fmt.Println(err)
-    os.Exit(int(exit))
-}
-// => {"count": 3, "total": 6, "vowels": "aeiouAEIOU"}
+func main () {
+    // ...
 
-exit, out, err = plugin.Call("count_vowels", []byte("Hello, World!"))
-if err != nil {
-    fmt.Println(err)
-    os.Exit(int(exit))
+    exit, out, err := plugin.Call("count_vowels", []byte("Hello, World!"))
+    if err != nil {
+        fmt.Println(err)
+        os.Exit(int(exit))
+    }
+    fmt.Println(string(out))
+    // => {"count": 3, "total": 6, "vowels": "aeiouAEIOU"}
+
+    exit, out, err = plugin.Call("count_vowels", []byte("Hello, World!"))
+    if err != nil {
+        fmt.Println(err)
+        os.Exit(int(exit))
+    }
+    fmt.Println(string(out))
+    // => {"count": 3, "total": 9, "vowels": "aeiouAEIOU"}
 }
-// => {"count": 3, "total": 9, "vowels": "aeiouAEIOU"}
+
 ```
 
 These variables will persist until this plug-in is freed or you initialize a new one.
@@ -90,35 +124,37 @@ These variables will persist until this plug-in is freed or you initialize a new
 Plug-ins may optionally take a configuration object. This is a static way to configure the plug-in. Our count-vowels plugin takes an optional configuration to change out which characters are considered vowels. Example:
 
 ```go
-manifest := extism.Manifest{
-    Wasm: []extism.Wasm{
-        extism.WasmUrl{
-            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
+func main() {
+    manifest := extism.Manifest{
+        Wasm: []extism.Wasm{
+            extism.WasmUrl{
+                Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
+            },
         },
-    },
-    Config: map[string]string{
-        "vowels": "aeiouyAEIOUY",
-    },
-}
+        Config: map[string]string{
+            "vowels": "aeiouyAEIOUY",
+        },
+    }
 
-ctx := context.Background()
-config := extism.PluginConfig{
-    EnableWasi: true,
-}
+    ctx := context.Background()
+    config := extism.PluginConfig{}
 
-plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+    plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
 
-if err != nil {
-    fmt.Printf("Failed to initialize plugin: %v\n", err)
-    os.Exit(1)
-}
+    if err != nil {
+        fmt.Printf("Failed to initialize plugin: %v\n", err)
+        os.Exit(1)
+    }
 
-exit, out, err := plugin.Call("count_vowels", []byte("Yellow, World!"))
-if err != nil {
-    fmt.Println(err)
-    os.Exit(int(exit))
+    exit, out, err := plugin.Call("count_vowels", []byte("Yellow, World!"))
+    if err != nil {
+        fmt.Println(err)
+        os.Exit(int(exit))
+    }
+
+    fmt.Println(string(out))
+    // => {"count": 4, "total": 4, "vowels": "aeiouAEIOUY"}
 }
-// => {"count": 4, "total": 4, "vowels": "aeiouAEIOUY"}
 ```
 
 ### Host Functions
@@ -212,7 +248,9 @@ exit, out, err = plugin.Call("count_vowels", []byte("Hello, World!"))
 ```
 
 ## Build example plugins
+
 Since our [example plugins](./plugins/) are also written in Go, for compiling them we use [TinyGo](https://tinygo.org/):
+
 ```sh
 cd plugins/config
 tinygo build -target wasi -o ../wasm/config.wasm main.go
