@@ -293,6 +293,11 @@ func NewPlugin(
 		rconfig = config.RuntimeConfig
 	}
 
+	// Make sure function calls are cancelled if the context is cancelled
+	if manifest.Timeout > 0 {
+		rconfig = rconfig.WithCloseOnContextDone(true)
+	}
+
 	if manifest.Memory.MaxPages > 0 {
 		rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
 	}

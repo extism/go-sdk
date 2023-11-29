@@ -497,9 +497,8 @@ func TestTimeout(t *testing.T) {
 	manifest.Config["duration"] = "3" // sleep for 3 seconds
 
 	config := PluginConfig{
-		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:    true,
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:   true,
 	}
 
 	plugin, err := NewPlugin(context.Background(), manifest, config, []HostFunction{})
@@ -664,6 +663,42 @@ func TestHelloHaskell(t *testing.T) {
 
 			assert.Contains(t, logs, "Initialized Haskell language runtime.")
 		}
+	}
+}
+
+func TestJsonManifest(t *testing.T) {
+	m := `
+	{
+		"wasm": [
+		  {
+			"path": "wasm/sleep.wasm"
+		  }
+		],
+		"memory": {
+		  "max_pages": 100
+		},
+		"config": {
+		  "key1": "value1",
+		  "key2": "value2",
+		  "duration": "3"
+		},
+		"timeout_ms": 100
+	}
+	`
+
+	manifest := Manifest{}
+	err := manifest.UnmarshalJSON([]byte(m))
+	if err != nil {
+		t.Error(err)
+	}
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		exit, _, err := plugin.Call("run_test", []byte{})
+
+		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
+		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 	}
 }
 
