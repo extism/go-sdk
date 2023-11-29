@@ -667,6 +667,56 @@ func TestHelloHaskell(t *testing.T) {
 	}
 }
 
+func BenchmarkInitialize(b *testing.B) {
+	ctx := context.Background()
+	cache := wazero.NewCompilationCache()
+	defer cache.Close(ctx)
+
+	b.ResetTimer()
+	b.Run("noop", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+
+			config := PluginConfig{
+				EnableWasi:    true,
+				ModuleConfig:  wazero.NewModuleConfig(),
+				RuntimeConfig: wazero.NewRuntimeConfig(),
+			}
+
+			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+			if err != nil {
+				panic(err)
+			}
+		}
+	})
+}
+
+func BenchmarkInitializeWithCache(b *testing.B) {
+	ctx := context.Background()
+	cache := wazero.NewCompilationCache()
+	defer cache.Close(ctx)
+
+	b.ResetTimer()
+	b.Run("noop", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+
+			config := PluginConfig{
+				EnableWasi:    true,
+				ModuleConfig:  wazero.NewModuleConfig(),
+				RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+			}
+
+			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+			if err != nil {
+				panic(err)
+			}
+		}
+	})
+}
+
 func BenchmarkNoop(b *testing.B) {
 	ctx := context.Background()
 	cache := wazero.NewCompilationCache()
