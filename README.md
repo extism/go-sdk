@@ -211,6 +211,25 @@ exit, out, err = plugin.Call("count_vowels", []byte("Hello, World!"))
 // => {"count": 3, "total": 6, "vowels": "aeiouAEIOU"}
 ```
 
+### Enabling Compilation Cache
+While Wazero (the underlying Wasm runtime) is very fast in initializing modules, you can make subsequent initializations even faster by enabling the compilation cache:
+
+```go
+ctx := context.Background()
+cache := wazero.NewCompilationCache()
+defer cache.Close(ctx)
+
+manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+
+config := PluginConfig{
+    EnableWasi:    true,
+    ModuleConfig:  wazero.NewModuleConfig(),
+    RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+}
+
+_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+```
+
 ## Build example plugins
 Since our [example plugins](./plugins/) are also written in Go, for compiling them we use [TinyGo](https://tinygo.org/):
 ```sh
