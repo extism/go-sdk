@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -148,6 +149,16 @@ type WasmUrl struct {
 	Method  string            `json:"method,omitempty"`
 }
 
+type concreteWasm struct {
+	Data    []byte            `json:"data,omitempty"`
+	Path    string            `json:"path,omitempty"`
+	Url     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Method  string            `json:"method,omitempty"`
+	Hash    string            `json:"hash,omitempty"`
+	Name    string            `json:"name,omitempty"`
+}
+
 func (d WasmData) ToWasmData(ctx context.Context) (WasmData, error) {
 	return d, nil
 }
@@ -217,6 +228,52 @@ type Manifest struct {
 	Timeout      uint64            `json:"timeout_ms,omitempty"`
 }
 
+type concreteManifest struct {
+	Wasm   []concreteWasm `json:"wasm"`
+	Memory struct {
+		MaxPages uint32 `json:"max_pages,omitempty"`
+	} `json:"memory,omitempty"`
+	Config       map[string]string `json:"config,omitempty"`
+	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
+	AllowedPaths map[string]string `json:"allowed_paths,omitempty"`
+	Timeout      uint64            `json:"timeout_ms,omitempty"`
+}
+
+func (m *Manifest) UnmarshalJSON(data []byte) error {
+	tmp := concreteManifest{}
+	err := json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+
+	m.Memory = tmp.Memory
+	m.Config = tmp.Config
+	m.AllowedHosts = tmp.AllowedHosts
+	m.AllowedPaths = tmp.AllowedPaths
+	m.Timeout = tmp.Timeout
+	if m.Wasm == nil {
+		m.Wasm = []Wasm{}
+	}
+	for _, w := range tmp.Wasm {
+		if len(w.Data) > 0 {
+			m.Wasm = append(m.Wasm, WasmData{Data: w.Data, Hash: w.Hash, Name: w.Name})
+		} else if len(w.Path) > 0 {
+			m.Wasm = append(m.Wasm, WasmFile{Path: w.Path, Hash: w.Hash, Name: w.Name})
+		} else if len(w.Url) > 0 {
+			m.Wasm = append(m.Wasm, WasmUrl{
+				Url:     w.Url,
+				Headers: w.Headers,
+				Method:  w.Method,
+				Hash:    w.Hash,
+				Name:    w.Name,
+			})
+		} else {
+			return errors.New("Invalid Wasm entry")
+		}
+	}
+	return nil
+}
+
 // Close closes the plugin by freeing the underlying resources.
 func (p *Plugin) Close() error {
 	return p.Runtime.Wazero.Close(p.Runtime.ctx)
@@ -234,6 +291,11 @@ func NewPlugin(
 		rconfig = wazero.NewRuntimeConfig()
 	} else {
 		rconfig = config.RuntimeConfig
+	}
+
+	// Make sure function calls are cancelled if the context is cancelled
+	if manifest.Timeout > 0 {
+		rconfig = rconfig.WithCloseOnContextDone(true)
 	}
 
 	if manifest.Memory.MaxPages > 0 {
@@ -303,16 +365,27 @@ func NewPlugin(
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
 	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
 
-	for _, wasm := range manifest.Wasm {
+	// Try to find the main module:
+	//  - There is always one main module
+	//  - If a Wasm value has the Name field set to "main" then use that module
+	//  - If there is only one module in the manifest then that is the main module by default
+	//  - Otherwise the last module listed is the main module
+
+	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
 			return nil, err
 		}
 
+		_, mainExists := modules["main"]
+		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
+			data.Name = "main"
+		}
+
 		_, okh := hostModules[data.Name]
 		_, okm := modules[data.Name]
 
-		if data.Name == "env" || okh || okm {
+		if data.Name == "extism:host/env" || okh || okm {
 			return nil, fmt.Errorf("Module name collision: '%s'", data.Name)
 		}
 
@@ -326,18 +399,10 @@ func NewPlugin(
 		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, moduleConfig.WithName(data.Name))
 		if err != nil {
 			return nil, err
-		} else if count > 1 && m.Name() == "" {
-			return nil, fmt.Errorf("Module name can't be empty if manifest contains multiple modules.")
 		}
 
 		modules[data.Name] = m
 	}
-
-	// Try to find the main module:
-	//  - There is always one main module
-	//  - If a Wasm value has the Name field set to "main" then use that module
-	//  - If there is only one module in the manifest then that is the main module by default
-	//  - Otherwise the last module listed is the main module
 
 	logLevel := LogLevelWarn
 	if config.LogLevel != logLevelUnset {
@@ -346,7 +411,7 @@ func NewPlugin(
 
 	i := 0
 	for _, m := range modules {
-		if m.Name() == "main" || i == len(modules)-1 {
+		if m.Name() == "main" {
 			p := &Plugin{
 				Runtime:        &c,
 				Modules:        modules,
