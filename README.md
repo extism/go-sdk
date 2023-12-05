@@ -201,8 +201,8 @@ kvRead := extism.NewHostFunctionWithStack(
 
         stack[0], err = p.WriteBytes(value)
     },
-    []api.ValueType{extism.PTR},
-    []api.ValueType{extism.PTR},
+    []ValueType{ValueTypePTR},
+    []ValueType{ValueTypePTR},
 )
 
 kvWrite := extism.NewHostFunctionWithStack(
@@ -220,8 +220,8 @@ kvWrite := extism.NewHostFunctionWithStack(
 
         kvStore[key] = value
     },
-    []api.ValueType{extism.PTR, extism.PTR},
-    []api.ValueType{},
+    []ValueType{ValueTypePTR, ValueTypePTR},
+    []ValueType{},
 )
 ```
 

@@ -13,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/sys"
 )
 
@@ -227,13 +226,13 @@ func TestHost_simple(t *testing.T) {
 	mult := NewHostFunctionWithStack(
 		"mult",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
-			a := api.DecodeI32(stack[0])
-			b := api.DecodeI32(stack[1])
+			a := DecodeI32(stack[0])
+			b := DecodeI32(stack[1])
 
-			stack[0] = api.EncodeI32(a * b)
+			stack[0] = EncodeI32(a * b)
 		},
-		[]api.ValueType{PTR, PTR},
-		[]api.ValueType{PTR},
+		[]ValueType{ValueTypePTR, ValueTypePTR},
+		[]ValueType{ValueTypePTR},
 	)
 
 	if plugin, ok := plugin(t, manifest, mult); ok {
@@ -274,8 +273,8 @@ func TestHost_memory(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{PTR},
-		[]api.ValueType{PTR},
+		[]ValueType{ValueTypePTR},
+		[]ValueType{ValueTypePTR},
 	)
 
 	mult.SetNamespace("host")
@@ -323,8 +322,8 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{PTR},
-		[]api.ValueType{PTR},
+		[]ValueType{ValueTypePTR},
+		[]ValueType{ValueTypePTR},
 	)
 
 	purple_message := NewHostFunctionWithStack(
@@ -348,8 +347,8 @@ func TestHost_multiple(t *testing.T) {
 
 			stack[0] = offset
 		},
-		[]api.ValueType{PTR},
-		[]api.ValueType{PTR},
+		[]ValueType{ValueTypePTR},
+		[]ValueType{ValueTypePTR},
 	)
 
 	hostFunctions := []HostFunction{
