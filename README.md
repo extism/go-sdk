@@ -2,7 +2,7 @@
 
 This repo houses the Go SDK for integrating with the [Extism](https://extism.org/) runtime. Install this library into your host Go applications to run Extism plugins.
 
-Join the [Discord](https://discord.gg/EGTV8Pxs) and chat with us!
+Join the [Extism Discord](https://extism.org/discord) and chat with us!
 
 ## Installation
 
@@ -63,8 +63,6 @@ func main() {
 This plug-in was written in Rust and it does one thing, it counts vowels in a string. As such, it exposes one "export" function: `count_vowels`. We can call exports using [extism.Plugin.Call](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.Call).
 Let's add that code to our main func:
 
-// => {"count": 3, "total": 3, "vowels": "aeiouAEIOU"}
-
 ```go
 func main() {
     // ...
@@ -78,6 +76,7 @@ func main() {
 
 	response := string(out)
 	fmt.Println(response)
+    // => {"count": 3, "total": 3, "vowels": "aeiouAEIOU"}
 }
 ```
 
@@ -92,7 +91,7 @@ All exports have a simple interface of optional bytes in, and optional bytes out
 
 ### Plug-in State
 
-Plug-ins may be stateful or stateless. Plug-ins can maintain state b/w calls by the use of variables. Our count vowels plug-in remembers the total number of vowels it's ever counted in the "total" key in the result. You can see this by making subsequent calls to the export:
+Plug-ins may be stateful or stateless. Plug-ins can maintain state between calls by the use of variables. Our count vowels plug-in remembers the total number of vowels it's ever counted in the "total" key in the result. You can see this by making subsequent calls to the export:
 
 ```go
 func main () {
