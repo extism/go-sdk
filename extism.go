@@ -14,11 +14,17 @@ import (
 	"os"
 	"time"
 
+	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
 )
+
+type module struct {
+	module api.Module
+	wasm   []byte
+}
 
 //go:embed extism-runtime.wasm
 var extismRuntimeWasm []byte
@@ -34,10 +40,12 @@ type Runtime struct {
 
 // PluginConfig contains configuration options for the Extism plugin.
 type PluginConfig struct {
-	ModuleConfig  wazero.ModuleConfig
-	RuntimeConfig wazero.RuntimeConfig
-	EnableWasi    bool
-	LogLevel      LogLevel
+	ModuleConfig   wazero.ModuleConfig
+	RuntimeConfig  wazero.RuntimeConfig
+	EnableWasi     bool
+	LogLevel       LogLevel
+	ObserveAdapter *observe.AdapterBase
+	ObserveOptions *observe.Options
 }
 
 // HttpRequest represents an HTTP request to be made by the plugin.
@@ -80,8 +88,8 @@ func (l LogLevel) String() string {
 // Plugin is used to call WASM functions
 type Plugin struct {
 	Runtime *Runtime
-	Modules map[string]api.Module
-	Main    api.Module
+	Modules map[string]module
+	Main    module
 	Timeout time.Duration
 	Config  map[string]string
 	// NOTE: maybe we can have some nice methods for getting/setting vars
@@ -92,6 +100,8 @@ type Plugin struct {
 	log            func(LogLevel, string)
 	logLevel       LogLevel
 	guestRuntime   guestRuntime
+	Adapter        *observe.AdapterBase
+	TraceCtx       *observe.TraceCtx
 }
 
 func logStd(level LogLevel, message string) {
@@ -276,6 +286,12 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 
 // Close closes the plugin by freeing the underlying resources.
 func (p *Plugin) Close() error {
+	// TODO: Since we don't start the adapter in the ctor, should we stop it here?
+	if p.Adapter != nil {
+		a := *p.Adapter
+		a.Stop(true)
+	}
+
 	return p.Runtime.Wazero.Close(p.Runtime.ctx)
 }
 
@@ -344,7 +360,7 @@ func NewPlugin(
 		return nil, fmt.Errorf("Manifest can't be empty.")
 	}
 
-	modules := map[string]api.Module{}
+	modules := map[string]module{}
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
@@ -371,6 +387,7 @@ func NewPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
+	var trace *observe.TraceCtx
 	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
@@ -380,6 +397,18 @@ func NewPlugin(
 		_, mainExists := modules["main"]
 		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
 			data.Name = "main"
+		}
+
+		if data.Name == "main" && config.ObserveAdapter != nil {
+			// TODO: Since we can extract the names out of a api.Module,
+			// maybe we can have a new overload that accepts that instead of []byte?
+			trace, err = config.ObserveAdapter.NewTraceCtx(ctx, c.Wazero, data.Data, config.ObserveOptions)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to initialize Observe Adapter: %v", err)
+			}
+
+			// TODO: Do we actually need to finish the trace?
+			trace.Finish()
 		}
 
 		_, okh := hostModules[data.Name]
@@ -401,7 +430,7 @@ func NewPlugin(
 			return nil, err
 		}
 
-		modules[data.Name] = m
+		modules[data.Name] = module{module: m, wasm: data.Data}
 	}
 
 	logLevel := LogLevelWarn
@@ -411,7 +440,7 @@ func NewPlugin(
 
 	i := 0
 	for _, m := range modules {
-		if m.Name() == "main" {
+		if m.module.Name() == "main" {
 			p := &Plugin{
 				Runtime:        &c,
 				Modules:        modules,
@@ -423,7 +452,9 @@ func NewPlugin(
 				LastStatusCode: 0,
 				Timeout:        time.Duration(manifest.Timeout) * time.Millisecond,
 				log:            logStd,
-				logLevel:       logLevel}
+				logLevel:       logLevel,
+				Adapter:        config.ObserveAdapter,
+				TraceCtx:       trace}
 
 			p.guestRuntime = detectGuestRuntime(p)
 			return p, nil
@@ -499,7 +530,7 @@ func (plugin *Plugin) GetError() string {
 
 // FunctionExists returns true when the named function is present in the plugin's main module
 func (plugin *Plugin) FunctionExists(name string) bool {
-	return plugin.Main.ExportedFunction(name) != nil
+	return plugin.Main.module.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
@@ -521,7 +552,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 	ctx = context.WithValue(ctx, "inputOffset", intputOffset)
 
-	var f = plugin.Main.ExportedFunction(name)
+	var f = plugin.Main.module.ExportedFunction(name)
 
 	if f == nil {
 		return 1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
@@ -541,6 +572,11 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	plugin.Logf(LogLevelDebug, "Calling function : %v", name)
 
 	res, err := f.Call(ctx)
+
+	// TODO: Should we finish the trace now, or defer it?
+	if plugin.TraceCtx != nil {
+		defer plugin.TraceCtx.Finish()
+	}
 
 	// Try to extact WASI exit code
 	if exitErr, ok := err.(*sys.ExitError); ok {

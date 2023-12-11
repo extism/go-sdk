@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	observe "github.com/dylibso/observe-sdk/go"
+	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
@@ -699,6 +701,55 @@ func TestJsonManifest(t *testing.T) {
 		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
 		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 	}
+}
+
+func TestObserve(t *testing.T) {
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+
+	adapter := stdout.NewStdoutAdapter()
+	adapter.Start(ctx)
+
+	manifest := manifest("nested.c.instr.wasm")
+
+	config := PluginConfig{
+		ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:     true,
+		ObserveAdapter: adapter.AdapterBase,
+		ObserveOptions: &observe.Options{
+			SpanFilter:        &observe.SpanFilter{MinDuration: 1 * time.Nanosecond},
+			ChannelBufferSize: 1024,
+		},
+	}
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	meta := map[string]string{
+		"http.url":         "https://example.com/my-endpoint",
+		"http.status_code": "200",
+		"http.client_ip":   "192.168.1.0",
+	}
+
+	plugin.TraceCtx.Metadata(meta)
+
+	_, _, _ = plugin.Call("_start", []byte("hello world"))
+	plugin.Close()
+
+	// HACK: make sure we give enough time for the events to get flushed
+	time.Sleep(100 * time.Millisecond)
+
+	actual := buf.String()
+	assert.Contains(t, actual, "  Call to _start took")
+	assert.Contains(t, actual, "      Call to main took")
+	assert.Contains(t, actual, "        Call to one took")
+	assert.Contains(t, actual, "          Call to two took")
+	assert.Contains(t, actual, "            Call to three took")
+	assert.Contains(t, actual, "              Call to printf took")
 }
 
 func BenchmarkInitialize(b *testing.B) {
