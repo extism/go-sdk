@@ -286,12 +286,6 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 
 // Close closes the plugin by freeing the underlying resources.
 func (p *Plugin) Close() error {
-	// TODO: Since we don't start the adapter in the ctor, should we stop it here?
-	if p.Adapter != nil {
-		a := *p.Adapter
-		a.Stop(true)
-	}
-
 	return p.Runtime.Wazero.Close(p.Runtime.ctx)
 }
 
@@ -407,7 +401,6 @@ func NewPlugin(
 				return nil, fmt.Errorf("Failed to initialize Observe Adapter: %v", err)
 			}
 
-			// TODO: Do we actually need to finish the trace?
 			trace.Finish()
 		}
 
@@ -573,7 +566,6 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 	res, err := f.Call(ctx)
 
-	// TODO: Should we finish the trace now, or defer it?
 	if plugin.TraceCtx != nil {
 		defer plugin.TraceCtx.Finish()
 	}
