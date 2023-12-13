@@ -724,6 +724,7 @@ func TestObserve(t *testing.T) {
 		},
 	}
 
+	// Plugin 1
 	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
 	if err != nil {
 		panic(err)
@@ -750,6 +751,29 @@ func TestObserve(t *testing.T) {
 	assert.Contains(t, actual, "          Call to two took")
 	assert.Contains(t, actual, "            Call to three took")
 	assert.Contains(t, actual, "              Call to printf took")
+
+	// Reset underlying buffer
+	buf.Reset()
+
+	// Plugin 2
+	plugin2, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	_, _, _ = plugin2.Call("_start", []byte("hello world"))
+	plugin2.Close()
+
+	// HACK: make sure we give enough time for the events to get flushed
+	time.Sleep(100 * time.Millisecond)
+
+	actual2 := buf.String()
+	assert.Contains(t, actual2, "  Call to _start took")
+	assert.Contains(t, actual2, "      Call to main took")
+	assert.Contains(t, actual2, "        Call to one took")
+	assert.Contains(t, actual2, "          Call to two took")
+	assert.Contains(t, actual2, "            Call to three took")
+	assert.Contains(t, actual2, "              Call to printf took")
 }
 
 func BenchmarkInitialize(b *testing.B) {
