@@ -21,7 +21,7 @@ type guestRuntime struct {
 }
 
 func detectGuestRuntime(p *Plugin) guestRuntime {
-	m := p.Main
+	m := p.Main.module
 
 	runtime, ok := haskellRuntime(p, m)
 	if ok {
