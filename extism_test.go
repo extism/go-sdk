@@ -701,6 +701,21 @@ func TestJsonManifest(t *testing.T) {
 	}
 }
 
+func TestInputOffset(t *testing.T) {
+	manifest := manifest("input_offset.wasm")
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		input_data := []byte("hello world")
+		exit, output, err := plugin.Call("input_offset_length", input_data)
+
+		if assertCall(t, err, exit) {
+			assert.Equal(t, len(input_data), int(output[0]))
+		}
+	}
+}
+
 func BenchmarkInitialize(b *testing.B) {
 	ctx := context.Background()
 	cache := wazero.NewCompilationCache()

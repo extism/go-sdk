@@ -256,6 +256,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	wrap("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
 	wrap("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
 	wrap("input_length", []ValueType{}, []ValueType{ValueTypeI64})
+	wrap("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
 	wrap("output_length", []ValueType{}, []ValueType{ValueTypeI64})
 	wrap("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
 	wrap("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
