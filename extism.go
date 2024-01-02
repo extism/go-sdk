@@ -365,6 +365,11 @@ func NewPlugin(
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
 	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
 
+	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
+	if c.hasWasi && wasiOutput {
+		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
+	}
+
 	// Try to find the main module:
 	//  - There is always one main module
 	//  - If a Wasm value has the Name field set to "main" then use that module
