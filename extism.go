@@ -365,7 +365,7 @@ func NewPlugin(
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
 	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
 
-   _, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
+	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
 	if c.hasWasi && wasiOutput {
 		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
 	}
