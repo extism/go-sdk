@@ -579,7 +579,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 	if rc != 0 {
 		errMsg := plugin.GetError()
 		if errMsg == "" {
-			errMsg = "Call failed"
+			errMsg = "Encountered an unknown error in call to Extism plugin function " + name
 		}
 		return rc, []byte{}, errors.New(errMsg)
 	}
