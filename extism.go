@@ -399,8 +399,6 @@ func NewPlugin(
 		}
 
 		if data.Name == "main" && config.ObserveAdapter != nil {
-			// TODO: Since we can extract the names out of a api.Module,
-			// maybe we can have a new overload that accepts that instead of []byte?
 			trace, err = config.ObserveAdapter.NewTraceCtx(ctx, c.Wazero, data.Data, config.ObserveOptions)
 			if err != nil {
 				return nil, fmt.Errorf("Failed to initialize Observe Adapter: %v", err)
