@@ -1,8 +1,8 @@
-module github.com/extism/extism-sdk-plugins-http
+module github.com/extism/extism-sdk-plugins-println
 
 go 1.21.0
 
-toolchain go1.21.5
+toolchain go1.21.1
 
 require (
 	github.com/extism/go-pdk v1.0.0-rc2 // indirect
