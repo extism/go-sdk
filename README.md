@@ -265,6 +265,105 @@ config := PluginConfig{
 _, err := NewPlugin(ctx, manifest, config, []HostFunction{})
 ```
 
+### Enable filesystem access
+
+WASM plugins can read/write files outside the runtime. To do this we add allowed path mapping of "HOST:PLUGIN" to the `extism.Manifest` of our plugin.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	extism "github.com/extism/go-sdk"
+)
+
+func main() {
+	manifest := extism.Manifest{
+		AllowedPaths: map[string]string{
+
+			// Here we specifify a host directory data to be linked
+			// to the /mnt directory inside the wasm runtime
+			"data": "/mnt",
+		},
+		Wasm: []extism.Wasm{
+			extism.WasmFile{
+				Path: "plugin.wasm",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := extism.PluginConfig{
+		EnableWasi: true,
+	}
+	plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+
+	if err != nil {
+		fmt.Printf("Failed to initialize plugin: %v\n", err)
+		os.Exit(1)
+	}
+
+	data := []byte("Hello world, this is written from within our wasm plugin.")
+	exit, _, err := plugin.Call("write_file", data)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(int(exit))
+	}
+}
+```
+
+Next we need to setup the runtime to make filesystem APIs available, we do this by calling `__wasm_call_ctors()` exported method in a WASM `_initialize` hook.
+
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/extism/go-pdk"
+)
+
+//export __wasm_call_ctors
+func __wasm_call_ctors()
+
+//export _initialize
+func _initialize() {
+	__wasm_call_ctors()
+}
+
+//export write_file
+func writeFile() int32 {
+	input := pdk.Input()
+
+	err := pluginMain("/mnt/wasm.txt", input)
+
+	if err != nil {
+		pdk.Log(pdk.LogTrace, err.Error())
+		return 1
+	}
+
+	return 0
+}
+
+func pluginMain(filename string, data []byte) error {
+	pdk.Log(pdk.LogInfo, "Writing following data to disk: "+string(data))
+
+	// Write to the file, will be created if it doesn't exist
+	err := os.WriteFile(filename, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func main() {}
+
+```
+
 ## Build example plugins
 
 Since our [example plugins](./plugins/) are also written in Go, for compiling them we use [TinyGo](https://tinygo.org/):
