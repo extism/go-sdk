@@ -267,7 +267,7 @@ _, err := NewPlugin(ctx, manifest, config, []HostFunction{})
 
 ### Enable filesystem access
 
-WASM plugins can read/write files outside the runtime. To do this we add allowed path mapping of "HOST:PLUGIN" to the `extism.Manifest` of our plugin.
+WASM plugins can read/write files outside the runtime. To do this we add `AllowedPaths` mapping of "HOST:PLUGIN" to the `extism.Manifest` of our plugin.
 
 ```go
 package main
@@ -283,14 +283,13 @@ import (
 func main() {
 	manifest := extism.Manifest{
 		AllowedPaths: map[string]string{
-
 			// Here we specifify a host directory data to be linked
 			// to the /mnt directory inside the wasm runtime
 			"data": "/mnt",
 		},
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
-				Path: "plugin.wasm",
+				Path: "fs_plugin.wasm",
 			},
 		},
 	}
@@ -315,54 +314,7 @@ func main() {
 }
 ```
 
-Next we need to setup the runtime to make filesystem APIs available, we do this by calling `__wasm_call_ctors()` exported method in a WASM `_initialize` hook.
-
-```go
-package main
-
-import (
-	"os"
-
-	"github.com/extism/go-pdk"
-)
-
-//export __wasm_call_ctors
-func __wasm_call_ctors()
-
-//export _initialize
-func _initialize() {
-	__wasm_call_ctors()
-}
-
-//export write_file
-func writeFile() int32 {
-	input := pdk.Input()
-
-	err := pluginMain("/mnt/wasm.txt", input)
-
-	if err != nil {
-		pdk.Log(pdk.LogTrace, err.Error())
-		return 1
-	}
-
-	return 0
-}
-
-func pluginMain(filename string, data []byte) error {
-	pdk.Log(pdk.LogInfo, "Writing following data to disk: "+string(data))
-
-	// Write to the file, will be created if it doesn't exist
-	err := os.WriteFile(filename, data, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func main() {}
-
-```
+> *Note*: In order for filesystem APIs to work the plugin needs to be compiled with WASI target. Source code for the plugin can be found [here](https://github.com/extism/go-pdk/blob/main/example/fs/main.go) and is written in Go, but it could be written in any of our PDK languages.
 
 ## Build example plugins
 
