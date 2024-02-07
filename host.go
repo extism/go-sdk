@@ -509,9 +509,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 
 		plugin.LastStatusCode = resp.StatusCode
 
-		// TODO: make this limit configurable
-		// TODO: the rust implementation silently truncates the response body, should we keep the behavior here?
-		limiter := http.MaxBytesReader(nil, resp.Body, 1024*1024*50)
+		limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
 		body, err := io.ReadAll(limiter)
 		if err != nil {
 			panic(err)

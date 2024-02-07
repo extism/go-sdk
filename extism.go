@@ -85,13 +85,14 @@ type Plugin struct {
 	Timeout time.Duration
 	Config  map[string]string
 	// NOTE: maybe we can have some nice methods for getting/setting vars
-	Var            map[string][]byte
-	AllowedHosts   []string
-	AllowedPaths   map[string]string
-	LastStatusCode int
-	log            func(LogLevel, string)
-	logLevel       LogLevel
-	guestRuntime   guestRuntime
+	Var                  map[string][]byte
+	AllowedHosts         []string
+	AllowedPaths         map[string]string
+	LastStatusCode       int
+	MaxHttpResponseBytes int64
+	log                  func(LogLevel, string)
+	logLevel             LogLevel
+	guestRuntime         guestRuntime
 }
 
 func logStd(level LogLevel, message string) {
@@ -220,7 +221,8 @@ func (u WasmUrl) ToWasmData(ctx context.Context) (WasmData, error) {
 type Manifest struct {
 	Wasm   []Wasm `json:"wasm"`
 	Memory struct {
-		MaxPages uint32 `json:"max_pages,omitempty"`
+		MaxPages             uint32 `json:"max_pages,omitempty"`
+		MaxHttpResponseBytes uint64 `json:"max_http_response_bytes,omitempty"`
 	} `json:"memory,omitempty"`
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
@@ -231,7 +233,8 @@ type Manifest struct {
 type concreteManifest struct {
 	Wasm   []concreteWasm `json:"wasm"`
 	Memory struct {
-		MaxPages uint32 `json:"max_pages,omitempty"`
+		MaxPages             uint32 `json:"max_pages,omitempty"`
+		MaxHttpResponseBytes uint64 `json:"max_http_response_bytes,omitempty"`
 	} `json:"memory,omitempty"`
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
@@ -415,20 +418,26 @@ func NewPlugin(
 	}
 
 	i := 0
+	httpMax := int64(1024 * 1024 * 50)
+	if manifest.Memory.MaxHttpResponseBytes != 0 {
+		httpMax = int64(manifest.Memory.MaxHttpResponseBytes)
+	}
 	for _, m := range modules {
 		if m.Name() == "main" {
 			p := &Plugin{
-				Runtime:        &c,
-				Modules:        modules,
-				Main:           m,
-				Config:         manifest.Config,
-				Var:            map[string][]byte{},
-				AllowedHosts:   manifest.AllowedHosts,
-				AllowedPaths:   manifest.AllowedPaths,
-				LastStatusCode: 0,
-				Timeout:        time.Duration(manifest.Timeout) * time.Millisecond,
-				log:            logStd,
-				logLevel:       logLevel}
+				Runtime:              &c,
+				Modules:              modules,
+				Main:                 m,
+				Config:               manifest.Config,
+				Var:                  map[string][]byte{},
+				AllowedHosts:         manifest.AllowedHosts,
+				AllowedPaths:         manifest.AllowedPaths,
+				LastStatusCode:       0,
+				Timeout:              time.Duration(manifest.Timeout) * time.Millisecond,
+				MaxHttpResponseBytes: httpMax,
+				log:                  logStd,
+				logLevel:             logLevel,
+			}
 
 			p.guestRuntime = detectGuestRuntime(p)
 			return p, nil
