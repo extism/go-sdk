@@ -90,6 +90,7 @@ type Plugin struct {
 	AllowedPaths         map[string]string
 	LastStatusCode       int
 	MaxHttpResponseBytes int64
+	MaxVarBytes          int64
 	log                  func(LogLevel, string)
 	logLevel             LogLevel
 	guestRuntime         guestRuntime
@@ -216,14 +217,17 @@ func (u WasmUrl) ToWasmData(ctx context.Context) (WasmData, error) {
 	}, nil
 }
 
+type ManifestMemory struct {
+	MaxPages             uint32 `json:"max_pages,omitempty"`
+	MaxHttpResponseBytes int64  `json:"max_http_response_bytes,omitempty"`
+	MaxVarBytes          int64  `json:"max_var_bytes,omitempty"`
+}
+
 // Manifest represents the plugin's manifest, including Wasm modules and configuration.
 // See https://extism.org/docs/concepts/manifest for schema.
 type Manifest struct {
-	Wasm   []Wasm `json:"wasm"`
-	Memory struct {
-		MaxPages             uint32 `json:"max_pages,omitempty"`
-		MaxHttpResponseBytes uint64 `json:"max_http_response_bytes,omitempty"`
-	} `json:"memory,omitempty"`
+	Wasm         []Wasm            `json:"wasm"`
+	Memory       *ManifestMemory   `json:"memory,omitempty"`
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
 	AllowedPaths map[string]string `json:"allowed_paths,omitempty"`
@@ -232,9 +236,10 @@ type Manifest struct {
 
 type concreteManifest struct {
 	Wasm   []concreteWasm `json:"wasm"`
-	Memory struct {
+	Memory *struct {
 		MaxPages             uint32 `json:"max_pages,omitempty"`
-		MaxHttpResponseBytes uint64 `json:"max_http_response_bytes,omitempty"`
+		MaxHttpResponseBytes *int64 `json:"max_http_response_bytes,omitempty"`
+		MaxVarBytes          *int64 `json:"max_var_bytes,omitempty"`
 	} `json:"memory,omitempty"`
 	Config       map[string]string `json:"config,omitempty"`
 	AllowedHosts []string          `json:"allowed_hosts,omitempty"`
@@ -249,7 +254,25 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	m.Memory = tmp.Memory
+	m.Memory = &ManifestMemory{}
+	if tmp.Memory != nil {
+		m.Memory.MaxPages = tmp.Memory.MaxPages
+		if tmp.Memory.MaxHttpResponseBytes != nil {
+			m.Memory.MaxHttpResponseBytes = *tmp.Memory.MaxHttpResponseBytes
+		} else {
+			m.Memory.MaxHttpResponseBytes = -1
+		}
+
+		if tmp.Memory.MaxVarBytes != nil {
+			m.Memory.MaxVarBytes = *tmp.Memory.MaxVarBytes
+		} else {
+			m.Memory.MaxVarBytes = -1
+		}
+	} else {
+		m.Memory.MaxPages = 0
+		m.Memory.MaxHttpResponseBytes = -1
+		m.Memory.MaxVarBytes = -1
+	}
 	m.Config = tmp.Config
 	m.AllowedHosts = tmp.AllowedHosts
 	m.AllowedPaths = tmp.AllowedPaths
@@ -301,8 +324,10 @@ func NewPlugin(
 		rconfig = rconfig.WithCloseOnContextDone(true)
 	}
 
-	if manifest.Memory.MaxPages > 0 {
-		rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
+	if manifest.Memory != nil {
+		if manifest.Memory.MaxPages > 0 {
+			rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
+		}
 	}
 
 	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
@@ -419,8 +444,13 @@ func NewPlugin(
 
 	i := 0
 	httpMax := int64(1024 * 1024 * 50)
-	if manifest.Memory.MaxHttpResponseBytes != 0 {
+	if manifest.Memory != nil && manifest.Memory.MaxHttpResponseBytes >= 0 {
 		httpMax = int64(manifest.Memory.MaxHttpResponseBytes)
+	}
+
+	varMax := int64(1024 * 1024)
+	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
+		varMax = int64(manifest.Memory.MaxVarBytes)
 	}
 	for _, m := range modules {
 		if m.Name() == "main" {
@@ -435,6 +465,7 @@ func NewPlugin(
 				LastStatusCode:       0,
 				Timeout:              time.Duration(manifest.Timeout) * time.Millisecond,
 				MaxHttpResponseBytes: httpMax,
+				MaxVarBytes:          varMax,
 				log:                  logStd,
 				logLevel:             logLevel,
 			}

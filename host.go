@@ -422,12 +422,13 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 	}
 
 	size := 0
-	for _, v := range plugin.Var {
+	for k, v := range plugin.Var {
+		size += len(k)
 		size += len(v)
 	}
 
 	// If the store is larger than 100MB then stop adding things
-	if size > 1024*1024*100 && valueOffset != 0 {
+	if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
 		panic("Variable store is full")
 	}
 
