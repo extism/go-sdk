@@ -525,7 +525,7 @@ func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
 	if plugin.Timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, plugin.Timeout)
+		ctx, cancel = context.WithTimeout(ctx, plugin.Timeout)
 		defer cancel()
 	}
 
