@@ -518,8 +518,11 @@ func (plugin *Plugin) FunctionExists(name string) bool {
 
 // Call a function by name with the given input, returning the output
 func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
-	ctx := plugin.Runtime.ctx
+	return plugin.CallWithContext(plugin.Runtime.ctx, name, data)
+}
 
+// Call a function by name with the given input and context, returning the output
+func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
 	if plugin.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(plugin.Runtime.ctx, plugin.Timeout)
