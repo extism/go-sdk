@@ -89,6 +89,9 @@ $ go run main.go
 
 All exports have a simple interface of optional bytes in, and optional bytes out. This plug-in happens to take a string and return a JSON encoded string with a report of results.
 
+> **Note**: If you want to pass a custom `context.Context` when calling a plugin function, you can use the [extism.Plugin.CallWithContext](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.CallWithContext) method instead.
+
+
 ### Plug-in State
 
 Plug-ins may be stateful or stateless. Plug-ins can maintain state between calls by the use of variables. Our count vowels plug-in remembers the total number of vowels it's ever counted in the "total" key in the result. You can see this by making subsequent calls to the export:
