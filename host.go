@@ -415,6 +415,10 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 		panic("Invalid context, `plugin` key not found")
 	}
 
+	if plugin.MaxVarBytes == 0 {
+		panic("Vars are disabled by this host")
+	}
+
 	cp := plugin.currentPlugin()
 
 	name, err := cp.ReadString(nameOffset)
