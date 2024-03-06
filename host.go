@@ -421,28 +421,29 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 		panic(fmt.Errorf("Failed to read var name from memory: %v", err))
 	}
 
-	size := 0
+	// Remove if the value offset is 0
+	if valueOffset == 0 {
+		delete(plugin.Var, name)
+		return
+	}
+
+	value, err := cp.ReadBytes(valueOffset)
+	if err != nil {
+		panic(fmt.Errorf("Failed to read var value from memory: %v", err))
+	}
+
+	// Calculate size including current key/value
+	size := len(name) + len(value)
 	for k, v := range plugin.Var {
 		size += len(k)
 		size += len(v)
 	}
 
-	// If the store is larger than 100MB then stop adding things
 	if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
 		panic("Variable store is full")
 	}
 
-	// Remove if the value offset is 0
-	if valueOffset == 0 {
-		delete(plugin.Var, name)
-	} else {
-		value, err := cp.ReadBytes(valueOffset)
-		if err != nil {
-			panic(fmt.Errorf("Failed to read var value from memory: %v", err))
-		}
-
-		plugin.Var[name] = value
-	}
+	plugin.Var[name] = value
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
