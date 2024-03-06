@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"unsafe"
 
 	// TODO: is there a better package for this?
 	"github.com/gobwas/glob"
@@ -433,10 +434,11 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 	}
 
 	// Calculate size including current key/value
-	size := len(name) + len(value)
+	size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
 	for k, v := range plugin.Var {
 		size += len(k)
 		size += len(v)
+		size += int(unsafe.Sizeof([]byte{}) + unsafe.Sizeof(""))
 	}
 
 	if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
