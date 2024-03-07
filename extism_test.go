@@ -573,6 +573,24 @@ func TestVar(t *testing.T) {
 
 }
 
+func TestNoVars(t *testing.T) {
+	manifest := manifest("var.wasm")
+	manifest.Memory = &ManifestMemory{MaxVarBytes: 0}
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+
+		plugin.Var["a"] = uintToLEBytes(10)
+
+		_, _, err := plugin.Call("run_test", []byte{})
+
+		if err == nil {
+			t.Fail()
+		}
+	}
+
+}
+
 func TestFS(t *testing.T) {
 	manifest := manifest("fs.wasm")
 	manifest.AllowedPaths = map[string]string{
