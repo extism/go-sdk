@@ -597,7 +597,7 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	var isStart = name == "_start"
 	if plugin.guestRuntime.init != nil && !isStart && !plugin.guestRuntime.initialized {
-		err := plugin.guestRuntime.init()
+		err := plugin.guestRuntime.init(ctx)
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}

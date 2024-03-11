@@ -18,7 +18,7 @@ const (
 
 type guestRuntime struct {
 	runtimeType runtimeType
-	init        func() error
+	init        func(ctx context.Context) error
 	initialized bool
 }
 
@@ -36,7 +36,7 @@ func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
 	}
 
 	p.Log(LogLevelTrace, "No runtime detected")
-	return guestRuntime{runtimeType: None, init: func() error { return nil }, initialized: true}
+	return guestRuntime{runtimeType: None, init: func(_ context.Context) error { return nil }, initialized: true}
 }
 
 // Check for Haskell runtime initialization functions
@@ -56,7 +56,7 @@ func haskellRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime,
 
 	reactorInit := m.ExportedFunction("_initialize")
 
-	init := func() error {
+	init := func(ctx context.Context) error {
 		if reactorInit != nil {
 			_, err := reactorInit.Call(ctx)
 			if err != nil {
@@ -118,7 +118,7 @@ func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
 
-func findFunc(ctx context.Context, m api.Module, p *Plugin, name string) func() error {
+func findFunc(ctx context.Context, m api.Module, p *Plugin, name string) func(context.Context) error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
@@ -130,7 +130,7 @@ func findFunc(ctx context.Context, m api.Module, p *Plugin, name string) func() 
 		return nil
 	}
 
-	return func() error {
+	return func(ctx context.Context) error {
 		p.Logf(LogLevelDebug, "Calling %v", name)
 		_, err := initFunc.Call(ctx)
 		return err
