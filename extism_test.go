@@ -518,7 +518,7 @@ func TestCancel(t *testing.T) {
 	manifest := manifest("sleep.wasm")
 	manifest.Config["duration"] = "3" // sleep for 3 seconds
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
 	config := PluginConfig{
 		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:    true,
@@ -533,12 +533,13 @@ func TestCancel(t *testing.T) {
 
 	defer plugin.Close()
 
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
 	}()
 
-	exit, _, err := plugin.Call("run_test", []byte{})
+	exit, _, err := plugin.CallWithContext(ctx, "run_test", []byte{})
 
 	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
 	assert.Equal(t, "module closed with context canceled", err.Error())

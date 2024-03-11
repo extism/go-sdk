@@ -123,7 +123,12 @@ func (p *CurrentPlugin) Memory() api.Memory {
 
 // Alloc a new memory block of the given length, returning its offset
 func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(p.plugin.Runtime.ctx, uint64(n))
+	return p.AllocWithContext(context.Background(), n)
+}
+
+// Alloc a new memory block of the given length, returning its offset
+func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64, error) {
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(n))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -135,7 +140,12 @@ func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
 
 // Free the memory block specified by the given offset
 func (p *CurrentPlugin) Free(offset uint64) error {
-	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(p.plugin.Runtime.ctx, uint64(offset))
+	return p.FreeWithContext(context.Background(), offset)
+}
+
+// Free the memory block specified by the given offset
+func (p *CurrentPlugin) FreeWithContext(ctx context.Context, offset uint64) error {
+	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(ctx, uint64(offset))
 	if err != nil {
 		return err
 	}
@@ -145,7 +155,12 @@ func (p *CurrentPlugin) Free(offset uint64) error {
 
 // Length returns the number of bytes allocated at the specified offset
 func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(p.plugin.Runtime.ctx, uint64(offs))
+	return p.LengthWithContext(context.Background(), offs)
+}
+
+// Length returns the number of bytes allocated at the specified offset
+func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uint64, error) {
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, uint64(offs))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {

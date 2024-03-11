@@ -1,6 +1,8 @@
 package extism
 
 import (
+	"context"
+
 	"github.com/tetratelabs/wazero/api"
 )
 
@@ -20,15 +22,15 @@ type guestRuntime struct {
 	initialized bool
 }
 
-func detectGuestRuntime(p *Plugin) guestRuntime {
+func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
 	m := p.Main
 
-	runtime, ok := haskellRuntime(p, m)
+	runtime, ok := haskellRuntime(ctx, p, m)
 	if ok {
 		return runtime
 	}
 
-	runtime, ok = wasiRuntime(p, m)
+	runtime, ok = wasiRuntime(ctx, p, m)
 	if ok {
 		return runtime
 	}
@@ -40,7 +42,7 @@ func detectGuestRuntime(p *Plugin) guestRuntime {
 // Check for Haskell runtime initialization functions
 // Initialize Haskell runtime if `hs_init` and `hs_exit` are present,
 // by calling the `hs_init` export
-func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
+func haskellRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime, bool) {
 	initFunc := m.ExportedFunction("hs_init")
 	if initFunc == nil {
 		return guestRuntime{}, false
@@ -56,12 +58,12 @@ func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 
 	init := func() error {
 		if reactorInit != nil {
-			_, err := reactorInit.Call(p.Runtime.ctx)
+			_, err := reactorInit.Call(ctx)
 			if err != nil {
 				p.Logf(LogLevelError, "Error running reactor _initialize: %s", err.Error())
 			}
 		}
-		_, err := initFunc.Call(p.Runtime.ctx, 0, 0)
+		_, err := initFunc.Call(ctx, 0, 0)
 		if err == nil {
 			p.Log(LogLevelDebug, "Initialized Haskell language runtime.")
 		}
@@ -74,7 +76,7 @@ func haskellRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 }
 
 // Check for initialization functions defined by the WASI standard
-func wasiRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
+func wasiRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime, bool) {
 	if !p.Runtime.hasWasi {
 		return guestRuntime{}, false
 	}
@@ -82,16 +84,16 @@ func wasiRuntime(p *Plugin, m api.Module) (guestRuntime, bool) {
 	// WASI supports two modules: Reactors and Commands
 	// we prioritize Reactors over Commands
 	// see: https://github.com/WebAssembly/WASI/blob/main/legacy/application-abi.md
-	if r, ok := reactorModule(m, p); ok {
+	if r, ok := reactorModule(ctx, m, p); ok {
 		return r, ok
 	}
 
-	return commandModule(m, p)
+	return commandModule(ctx, m, p)
 }
 
 // Check for `_initialize` this is used by WASI to initialize certain interfaces.
-func reactorModule(m api.Module, p *Plugin) (guestRuntime, bool) {
-	init := findFunc(m, p, "_initialize")
+func reactorModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, bool) {
+	init := findFunc(ctx, m, p, "_initialize")
 	if init == nil {
 		return guestRuntime{}, false
 	}
@@ -104,8 +106,8 @@ func reactorModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 
 // Check for `__wasm__call_ctors`, this is used by WASI to
 // initialize certain interfaces.
-func commandModule(m api.Module, p *Plugin) (guestRuntime, bool) {
-	init := findFunc(m, p, "__wasm_call_ctors")
+func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, bool) {
+	init := findFunc(ctx, m, p, "__wasm_call_ctors")
 	if init == nil {
 		return guestRuntime{}, false
 	}
@@ -116,7 +118,7 @@ func commandModule(m api.Module, p *Plugin) (guestRuntime, bool) {
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
 
-func findFunc(m api.Module, p *Plugin, name string) func() error {
+func findFunc(ctx context.Context, m api.Module, p *Plugin, name string) func() error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
@@ -130,7 +132,7 @@ func findFunc(m api.Module, p *Plugin, name string) func() error {
 
 	return func() error {
 		p.Logf(LogLevelDebug, "Calling %v", name)
-		_, err := initFunc.Call(p.Runtime.ctx)
+		_, err := initFunc.Call(ctx)
 		return err
 	}
 }
