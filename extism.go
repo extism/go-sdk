@@ -304,7 +304,7 @@ func (p *Plugin) Close() error {
 	return p.CloseWithContext(context.Background())
 }
 
-// Close closes the plugin by freeing the underlying resources.
+// CloseWithContext closes the plugin by freeing the underlying resources.
 func (p *Plugin) CloseWithContext(ctx context.Context) error {
 	return p.Runtime.Wazero.Close(ctx)
 }
