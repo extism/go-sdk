@@ -488,7 +488,7 @@ func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
 	return plugin.SetInputWithContext(context.Background(), data)
 }
 
-// SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
+// SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
 	_, err := plugin.Runtime.Extism.ExportedFunction("reset").Call(ctx)
 	if err != nil {
