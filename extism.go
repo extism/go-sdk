@@ -540,7 +540,7 @@ func (plugin *Plugin) GetError() string {
 	return plugin.GetErrorWithContext(context.Background())
 }
 
-// GetError retrieves the error message from the last WebAssembly function call, if any.
+// GetErrorWithContext retrieves the error message from the last WebAssembly function call.
 func (plugin *Plugin) GetErrorWithContext(ctx context.Context) string {
 	errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(ctx)
 	if err != nil {
