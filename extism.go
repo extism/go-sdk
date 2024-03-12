@@ -510,7 +510,7 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 	return plugin.GetOutputWithContext(context.Background())
 }
 
-// GetOutput retrieves the output data from the last WebAssembly function call.
+// GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
 	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("output_offset").Call(ctx)
 	if err != nil {
