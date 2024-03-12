@@ -28,7 +28,6 @@ type Runtime struct {
 	Wazero  wazero.Runtime
 	Extism  api.Module
 	Env     api.Module
-	ctx     context.Context
 	hasWasi bool
 }
 
@@ -302,7 +301,12 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 
 // Close closes the plugin by freeing the underlying resources.
 func (p *Plugin) Close() error {
-	return p.Runtime.Wazero.Close(p.Runtime.ctx)
+	return p.CloseWithContext(context.Background())
+}
+
+// CloseWithContext closes the plugin by freeing the underlying resources.
+func (p *Plugin) CloseWithContext(ctx context.Context) error {
+	return p.Runtime.Wazero.Close(ctx)
 }
 
 // NewPlugin creates a new Extism plugin with the given manifest, configuration, and host functions.
@@ -351,17 +355,16 @@ func NewPlugin(
 		Wazero: rt,
 		Extism: extism,
 		Env:    env,
-		ctx:    ctx,
 	}
 
 	if config.EnableWasi {
-		wasi_snapshot_preview1.MustInstantiate(c.ctx, c.Wazero)
+		wasi_snapshot_preview1.MustInstantiate(ctx, c.Wazero)
 
 		c.hasWasi = true
 	}
 
 	for name, funcs := range hostModules {
-		_, err := buildHostModule(c.ctx, c.Wazero, name, funcs)
+		_, err := buildHostModule(ctx, c.Wazero, name, funcs)
 		if err != nil {
 			return nil, err
 		}
@@ -429,7 +432,7 @@ func NewPlugin(
 			}
 		}
 
-		m, err := c.Wazero.InstantiateWithConfig(c.ctx, data.Data, moduleConfig.WithName(data.Name))
+		m, err := c.Wazero.InstantiateWithConfig(ctx, data.Data, moduleConfig.WithName(data.Name))
 		if err != nil {
 			return nil, err
 		}
@@ -470,7 +473,7 @@ func NewPlugin(
 				logLevel:             logLevel,
 			}
 
-			p.guestRuntime = detectGuestRuntime(p)
+			p.guestRuntime = detectGuestRuntime(ctx, p)
 			return p, nil
 		}
 
@@ -482,29 +485,39 @@ func NewPlugin(
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
-	_, err := plugin.Runtime.Extism.ExportedFunction("reset").Call(plugin.Runtime.ctx)
+	return plugin.SetInputWithContext(context.Background(), data)
+}
+
+// SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
+func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
+	_, err := plugin.Runtime.Extism.ExportedFunction("reset").Call(ctx)
 	if err != nil {
 		fmt.Println(err)
 		return 0, errors.New("reset")
 	}
 
-	ptr, err := plugin.Runtime.Extism.ExportedFunction("alloc").Call(plugin.Runtime.ctx, uint64(len(data)))
+	ptr, err := plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(len(data)))
 	if err != nil {
 		return 0, err
 	}
 	plugin.Memory().Write(uint32(ptr[0]), data)
-	plugin.Runtime.Extism.ExportedFunction("input_set").Call(plugin.Runtime.ctx, ptr[0], uint64(len(data)))
+	plugin.Runtime.Extism.ExportedFunction("input_set").Call(ctx, ptr[0], uint64(len(data)))
 	return ptr[0], nil
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutput() ([]byte, error) {
-	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("output_offset").Call(plugin.Runtime.ctx)
+	return plugin.GetOutputWithContext(context.Background())
+}
+
+// GetOutputWithContext retrieves the output data from the last WebAssembly function call.
+func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
+	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("output_offset").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	outputLen, err := plugin.Runtime.Extism.ExportedFunction("output_length").Call(plugin.Runtime.ctx)
+	outputLen, err := plugin.Runtime.Extism.ExportedFunction("output_length").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -524,7 +537,12 @@ func (plugin *Plugin) Memory() api.Memory {
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
 func (plugin *Plugin) GetError() string {
-	errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(plugin.Runtime.ctx)
+	return plugin.GetErrorWithContext(context.Background())
+}
+
+// GetErrorWithContext retrieves the error message from the last WebAssembly function call.
+func (plugin *Plugin) GetErrorWithContext(ctx context.Context) string {
+	errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(ctx)
 	if err != nil {
 		return ""
 	}
@@ -533,7 +551,7 @@ func (plugin *Plugin) GetError() string {
 		return ""
 	}
 
-	errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(plugin.Runtime.ctx, errOffs[0])
+	errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, errOffs[0])
 	if err != nil {
 		return ""
 	}
@@ -549,7 +567,7 @@ func (plugin *Plugin) FunctionExists(name string) bool {
 
 // Call a function by name with the given input, returning the output
 func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
-	return plugin.CallWithContext(plugin.Runtime.ctx, name, data)
+	return plugin.CallWithContext(context.Background(), name, data)
 }
 
 // Call a function by name with the given input and context, returning the output
@@ -579,7 +597,7 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	var isStart = name == "_start"
 	if plugin.guestRuntime.init != nil && !isStart && !plugin.guestRuntime.initialized {
-		err := plugin.guestRuntime.init()
+		err := plugin.guestRuntime.init(ctx)
 		if err != nil {
 			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}

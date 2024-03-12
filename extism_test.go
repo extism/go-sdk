@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	"github.com/tetratelabs/wazero/sys"
 )
 
@@ -518,7 +520,7 @@ func TestCancel(t *testing.T) {
 	manifest := manifest("sleep.wasm")
 	manifest.Config["duration"] = "3" // sleep for 3 seconds
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
 	config := PluginConfig{
 		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
 		EnableWasi:    true,
@@ -533,12 +535,13 @@ func TestCancel(t *testing.T) {
 
 	defer plugin.Close()
 
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
 	}()
 
-	exit, _, err := plugin.Call("run_test", []byte{})
+	exit, _, err := plugin.CallWithContext(ctx, "run_test", []byte{})
 
 	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
 	assert.Equal(t, "module closed with context canceled", err.Error())
@@ -731,6 +734,70 @@ func TestInputOffset(t *testing.T) {
 		if assertCall(t, err, exit) {
 			assert.Equal(t, len(input_data), int(output[0]))
 		}
+	}
+}
+
+// make sure cancelling the context given to NewPlugin doesn't affect plugin calls
+func TestContextCancel(t *testing.T) {
+	manifest := manifest("sleep.wasm")
+	manifest.Config["duration"] = "0" // sleep for 0 seconds
+
+	ctx, cancel := context.WithCancel(context.Background())
+	config := PluginConfig{
+		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:    true,
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+	}
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+
+	if err != nil {
+		t.Errorf("Could not create plugin: %v", err)
+	}
+
+	defer plugin.Close()
+	cancel() // cancel the parent context
+
+	exit, out, err := plugin.CallWithContext(context.Background(), "run_test", []byte{})
+
+	if assertCall(t, err, exit) {
+		assert.Equal(t, "slept for 0 seconds", string(out))
+	}
+}
+
+// make sure we can still turn on experimental wazero features
+func TestEnableExperimentalFeature(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Set context to one that has an experimental listener
+	ctx := context.WithValue(context.Background(), experimental.FunctionListenerFactoryKey{}, logging.NewLoggingListenerFactory(&buf))
+
+	manifest := manifest("sleep.wasm")
+	manifest.Config["duration"] = "0" // sleep for 0 seconds
+
+	config := PluginConfig{
+		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:    true,
+		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+	}
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+
+	if err != nil {
+		t.Errorf("Could not create plugin: %v", err)
+	}
+
+	defer plugin.Close()
+
+	var buf2 bytes.Buffer
+	ctx = context.WithValue(context.Background(), experimental.FunctionListenerFactoryKey{}, logging.NewLoggingListenerFactory(&buf2))
+	exit, out, err := plugin.CallWithContext(ctx, "run_test", []byte{})
+
+	if assertCall(t, err, exit) {
+		assert.Equal(t, "slept for 0 seconds", string(out))
+
+		assert.NotEmpty(t, buf.String())
+		assert.Empty(t, buf2.String())
 	}
 }
 
