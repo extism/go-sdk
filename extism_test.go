@@ -770,7 +770,7 @@ func TestEnableExperimentalFeature(t *testing.T) {
 	var buf bytes.Buffer
 
 	// Set context to one that has an experimental listener
-	ctx := context.WithValue(context.Background(), experimental.FunctionListenerFactoryKey{}, logging.NewLoggingListenerFactory(&buf))
+	ctx := experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf, logging.LogScopeAll))
 
 	manifest := manifest("sleep.wasm")
 	manifest.Config["duration"] = "0" // sleep for 0 seconds
@@ -790,7 +790,7 @@ func TestEnableExperimentalFeature(t *testing.T) {
 	defer plugin.Close()
 
 	var buf2 bytes.Buffer
-	ctx = context.WithValue(context.Background(), experimental.FunctionListenerFactoryKey{}, logging.NewLoggingListenerFactory(&buf2))
+	ctx = experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf2, logging.LogScopeAll))
 	exit, out, err := plugin.CallWithContext(ctx, "run_test", []byte{})
 
 	if assertCall(t, err, exit) {

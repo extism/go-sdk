@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/gobwas/glob v0.2.3
 	github.com/stretchr/testify v1.8.4
-	github.com/tetratelabs/wazero v1.7.0
+	github.com/tetratelabs/wazero v1.7.3
 )
 
 require (
