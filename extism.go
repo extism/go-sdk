@@ -96,7 +96,7 @@ type Plugin struct {
 }
 
 func logStd(level LogLevel, message string) {
-	log.Printf(message)
+	log.Print(message)
 }
 
 // SetLogger sets a custom logging callback
