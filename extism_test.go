@@ -614,6 +614,32 @@ func TestFS(t *testing.T) {
 	}
 }
 
+func TestReadOnlyMount(t *testing.T) {
+	manifest := manifest("read_write.wasm")
+	manifest.AllowedPaths = map[string]string{
+		"ro:testdata": "/mnt",
+	}
+
+	if plugin, ok := plugin(t, manifest); ok {
+		defer plugin.Close()
+		plugin.Config["path"] = "/mnt/test.txt"
+
+		exit, output, err := plugin.Call("try_read", []byte{})
+
+		if assertCall(t, err, exit) {
+			actual := string(output)
+			expected := "hello world!"
+
+			assert.Equal(t, expected, actual)
+		}
+
+		_, _, err = plugin.Call("try_write", []byte("hello hello!"))
+
+		assert.NotNil(t, err, "Write must fail")
+		assert.Contains(t, err.Error(), "Failed to write file")
+	}
+}
+
 func TestCountVowels(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
 
