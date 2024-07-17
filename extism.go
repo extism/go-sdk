@@ -1,6 +1,8 @@
 package extism
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -26,7 +28,6 @@ var extismRuntimeWasm []byte
 // Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
 	Wazero  wazero.Runtime
-	Extism  api.Module
 	Env     api.Module
 	hasWasi bool
 }
@@ -83,6 +84,9 @@ type Plugin struct {
 	Main    api.Module
 	Timeout time.Duration
 	Config  map[string]string
+	Input   *bufio.ReadWriter
+	Output  *bufio.ReadWriter
+
 	// NOTE: maybe we can have some nice methods for getting/setting vars
 	Var                  map[string][]byte
 	AllowedHosts         []string
@@ -336,24 +340,18 @@ func NewPlugin(
 
 	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
 
-	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
-	if err != nil {
-		return nil, err
-	}
-
 	hostModules := make(map[string][]HostFunction, 0)
 	for _, f := range functions {
 		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
 	}
 
-	env, err := buildEnvModule(ctx, rt, extism)
+	env, err := buildEnvModule(ctx, rt)
 	if err != nil {
 		return nil, err
 	}
 
 	c := Runtime{
 		Wazero: rt,
-		Extism: extism,
 		Env:    env,
 	}
 
@@ -455,6 +453,9 @@ func NewPlugin(
 	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
 		varMax = int64(manifest.Memory.MaxVarBytes)
 	}
+
+	output := bytes.NewBuffer([]byte{})
+	input := bytes.NewBuffer([]byte{})
 	for _, m := range modules {
 		if m.Name() == "main" {
 			p := &Plugin{
@@ -471,6 +472,8 @@ func NewPlugin(
 				MaxVarBytes:          varMax,
 				log:                  logStd,
 				logLevel:             logLevel,
+				Input:                bufio.NewReadWriter(bufio.NewReader(input), bufio.NewWriter(input)),
+				Output:               bufio.NewReadWriter(bufio.NewReader(output), bufio.NewWriter(output)),
 			}
 
 			p.guestRuntime = detectGuestRuntime(ctx, p)
@@ -484,25 +487,20 @@ func NewPlugin(
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
-func (plugin *Plugin) SetInput(data []byte) (uint64, error) {
+func (plugin *Plugin) SetInput(data []byte) error {
 	return plugin.SetInputWithContext(context.Background(), data)
 }
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
-func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
-	_, err := plugin.Runtime.Extism.ExportedFunction("reset").Call(ctx)
+func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) error {
+	_, err := plugin.Input.Writer.Write(data)
 	if err != nil {
-		fmt.Println(err)
-		return 0, errors.New("reset")
+		return err
 	}
 
-	ptr, err := plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(len(data)))
-	if err != nil {
-		return 0, err
-	}
-	plugin.Memory().Write(uint32(ptr[0]), data)
-	plugin.Runtime.Extism.ExportedFunction("input_set").Call(ctx, ptr[0], uint64(len(data)))
-	return ptr[0], nil
+	plugin.Input.Writer.Flush()
+
+	return nil
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
@@ -512,27 +510,11 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	outputOffs, err := plugin.Runtime.Extism.ExportedFunction("output_offset").Call(ctx)
+	buffer, err := io.ReadAll(plugin.Output.Reader)
 	if err != nil {
 		return []byte{}, err
 	}
-
-	outputLen, err := plugin.Runtime.Extism.ExportedFunction("output_length").Call(ctx)
-	if err != nil {
-		return []byte{}, err
-	}
-	mem, _ := plugin.Memory().Read(uint32(outputOffs[0]), uint32(outputLen[0]))
-
-	// Make sure output is copied, because `Read` returns a write-through view
-	buffer := make([]byte, len(mem))
-	copy(buffer, mem)
-
 	return buffer, nil
-}
-
-// Memory returns the plugin's WebAssembly memory interface.
-func (plugin *Plugin) Memory() api.Memory {
-	return plugin.Runtime.Extism.ExportedMemory("memory")
 }
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
@@ -542,22 +524,22 @@ func (plugin *Plugin) GetError() string {
 
 // GetErrorWithContext retrieves the error message from the last WebAssembly function call.
 func (plugin *Plugin) GetErrorWithContext(ctx context.Context) string {
-	errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(ctx)
-	if err != nil {
-		return ""
-	}
+	// errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(ctx)
+	// if err != nil {
+	// 	return ""
+	// }
 
-	if errOffs[0] == 0 {
-		return ""
-	}
+	// if errOffs[0] == 0 {
+	// 	return ""
+	// }
 
-	errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, errOffs[0])
-	if err != nil {
-		return ""
-	}
+	// errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, errOffs[0])
+	// if err != nil {
+	// 	return ""
+	// }
 
-	mem, _ := plugin.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
-	return string(mem)
+	// mem, _ := plugin.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
+	return "ERROR"
 }
 
 // FunctionExists returns true when the named function is present in the plugin's main module
@@ -580,12 +562,10 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	ctx = context.WithValue(ctx, "plugin", plugin)
 
-	intputOffset, err := plugin.SetInput(data)
+	err := plugin.SetInput(data)
 	if err != nil {
 		return 1, []byte{}, err
 	}
-
-	ctx = context.WithValue(ctx, "inputOffset", intputOffset)
 
 	var f = plugin.Main.ExportedFunction(name)
 

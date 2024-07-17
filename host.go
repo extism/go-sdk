@@ -1,17 +1,17 @@
 package extism
 
 import (
-	"bytes"
+	// "bytes"
 	"context"
-	"encoding/json"
+	// "encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
-	"unsafe"
+	// "net/http"
+	// "net/url"
+	// "unsafe"
 
 	// TODO: is there a better package for this?
-	"github.com/gobwas/glob"
+	// "github.com/gobwas/glob"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
@@ -102,10 +102,11 @@ func NewHostFunctionWithStack(
 
 type CurrentPlugin struct {
 	plugin *Plugin
+	module api.Module
 }
 
-func (p *Plugin) currentPlugin() *CurrentPlugin {
-	return &CurrentPlugin{p}
+func (p *Plugin) currentPlugin(module api.Module) *CurrentPlugin {
+	return &CurrentPlugin{p, module}
 }
 
 func (p *CurrentPlugin) Log(level LogLevel, message string) {
@@ -118,104 +119,7 @@ func (p *CurrentPlugin) Logf(level LogLevel, format string, args ...any) {
 
 // Memory returns the plugin's WebAssembly memory interface.
 func (p *CurrentPlugin) Memory() api.Memory {
-	return p.plugin.Memory()
-}
-
-// Alloc a new memory block of the given length, returning its offset
-func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
-	return p.AllocWithContext(context.Background(), n)
-}
-
-// Alloc a new memory block of the given length, returning its offset
-func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(n))
-	if err != nil {
-		return 0, err
-	} else if len(out) != 1 {
-		return 0, fmt.Errorf("Expected 1 return, go %v.", len(out))
-	}
-
-	return uint64(out[0]), nil
-}
-
-// Free the memory block specified by the given offset
-func (p *CurrentPlugin) Free(offset uint64) error {
-	return p.FreeWithContext(context.Background(), offset)
-}
-
-// Free the memory block specified by the given offset
-func (p *CurrentPlugin) FreeWithContext(ctx context.Context, offset uint64) error {
-	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(ctx, uint64(offset))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Length returns the number of bytes allocated at the specified offset
-func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
-	return p.LengthWithContext(context.Background(), offs)
-}
-
-// Length returns the number of bytes allocated at the specified offset
-func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, uint64(offs))
-	if err != nil {
-		return 0, err
-	} else if len(out) != 1 {
-		return 0, fmt.Errorf("Expected 1 return, go %v.", len(out))
-	}
-
-	return uint64(out[0]), nil
-}
-
-// Write a string to wasm memory and return the offset
-func (p *CurrentPlugin) WriteString(s string) (uint64, error) {
-	return p.WriteBytes([]byte(s))
-}
-
-// WriteBytes writes a string to wasm memory and return the offset
-func (p *CurrentPlugin) WriteBytes(b []byte) (uint64, error) {
-	ptr, err := p.Alloc(uint64(len(b)))
-	if err != nil {
-		return 0, err
-	}
-
-	ok := p.Memory().Write(uint32(ptr), b)
-	if !ok {
-		return 0, fmt.Errorf("Failed to write to memory.")
-	}
-
-	return ptr, nil
-}
-
-// ReadString reads a string from wasm memory
-func (p *CurrentPlugin) ReadString(offset uint64) (string, error) {
-	buffer, err := p.ReadBytes(offset)
-	if err != nil {
-		return "", err
-	}
-
-	return string(buffer), nil
-}
-
-// ReadBytes reads a byte array from memory
-func (p *CurrentPlugin) ReadBytes(offset uint64) ([]byte, error) {
-	length, err := p.Length(offset)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	buffer, ok := p.Memory().Read(uint32(offset), uint32(length))
-	if !ok {
-		return []byte{}, fmt.Errorf("Invalid memory block")
-	}
-
-	cpy := make([]byte, len(buffer))
-	copy(cpy, buffer)
-
-	return cpy, nil
+	return p.module.Memory()
 }
 
 func buildHostModule(ctx context.Context, rt wazero.Runtime, name string, funcs []HostFunction) (api.Module, error) {
@@ -236,9 +140,9 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		// See: https://github.com/extism/go-sdk/issues/5#issuecomment-1666774486
 		closure := f.stackCallback
 
-		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
+		builder.NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-				closure(ctx, &CurrentPlugin{plugin}, stack)
+				closure(ctx, &CurrentPlugin{plugin, m}, stack)
 				return
 			}
 
@@ -247,308 +151,303 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	}
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
+func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
 
-	wrap := func(name string, params []ValueType, results []ValueType) {
-		f := extism.ExportedFunction(name)
-		builder.
-			NewFunctionBuilder().
-			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
-				err := f.CallWithStack(ctx, stack)
-				if err != nil {
-					panic(err)
-				}
-			}), params, results).
-			Export(name)
-	}
+	// wrap := func(name string, params []ValueType, results []ValueType) {
+	// 	f := extism.ExportedFunction(name)
+	// 	builder.
+	// 		NewFunctionBuilder().
+	// 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
+	// 			err := f.CallWithStack(ctx, stack)
+	// 			if err != nil {
+	// 				panic(err)
+	// 			}
+	// 		}), params, results).
+	// 		Export(name)
+	// }
 
-	wrap("alloc", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("free", []ValueType{ValueTypeI64}, []ValueType{})
-	wrap("load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	wrap("input_load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	wrap("store_u64", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("store_u8", []ValueType{ValueTypeI64, ValueTypeI32}, []ValueType{})
-	wrap("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("input_length", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("output_length", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("length_unsafe", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("reset", []ValueType{}, []ValueType{})
-	wrap("error_set", []ValueType{ValueTypeI64}, []ValueType{})
-	wrap("error_get", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("memory_bytes", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("alloc", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	// wrap("free", []ValueType{ValueTypeI64}, []ValueType{})
+	// wrap("load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
+	// wrap("input_load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
+	// wrap("store_u64", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	// wrap("store_u8", []ValueType{ValueTypeI64, ValueTypeI32}, []ValueType{})
+	// wrap("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	// wrap("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	// wrap("input_length", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("output_length", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	// wrap("length_unsafe", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	// wrap("reset", []ValueType{}, []ValueType{})
+	// wrap("error_set", []ValueType{ValueTypeI64}, []ValueType{})
+	// wrap("error_get", []ValueType{}, []ValueType{ValueTypeI64})
+	// wrap("memory_bytes", []ValueType{}, []ValueType{ValueTypeI64})
 
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
-		Export("input_load_u64")
+	// builder.NewFunctionBuilder().
+	// 	WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
+	// 	Export("input_load_u64")
 
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
-		Export("load_u64")
+	// builder.NewFunctionBuilder().
+	// 	WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
+	// 	Export("load_u64")
 
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{}).
-		Export("store_u64")
+	// builder.NewFunctionBuilder().
+	// 	WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{}).
+	// 	Export("store_u64")
 
 	hostFunc := func(name string, f interface{}) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
 	}
 
-	hostFunc("config_get", configGet)
-	hostFunc("var_get", varGet)
-	hostFunc("var_set", varSet)
-	hostFunc("http_request", httpRequest)
-	hostFunc("http_status_code", httpStatusCode)
+	hostFunc("input_read", inputRead)
+	hostFunc("output_write", outputWrite)
+	hostFunc("config_read", configRead)
 
-	logFunc := func(name string, level LogLevel) {
-		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
-			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-				message, err := plugin.currentPlugin().ReadString(offset)
-				if err != nil {
-					panic(fmt.Errorf("Failed to read log message from memory: %v", err))
-				}
+	hostFunc("error", func(ctx context.Context, m api.Module, handle uint64) {
 
-				plugin.Log(level, message)
+		offs, len := getHandle(handle)
+		data, ok := m.Memory().Read(offs, len)
+		if !ok {
+			panic("invalid memory in call to extism:host/env::error")
+		}
+		panic(string(data))
+	})
+	// hostFunc("var_get", varGet)
+	// hostFunc("var_set", varSet)
+	// hostFunc("http_request", httpRequest)
+	// hostFunc("http_status_code", httpStatusCode)
 
-				return
-			}
+	hostFunc("log", func(ctx context.Context, m api.Module, level uint32, handle uint64) {
+		offs, len := getHandle(handle)
+		data, ok := m.Memory().Read(offs, len)
+		if !ok {
+			panic(fmt.Errorf("Failed to read log message from memory"))
+		}
+		if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+			plugin.Log(LogLevel(level+2), string(data))
+			return
+		}
 
-			panic("Invalid context, `plugin` key not found")
-		})
-	}
-
-	logFunc("log_debug", LogLevelDebug)
-	logFunc("log_info", LogLevelInfo)
-	logFunc("log_warn", LogLevelWarn)
-	logFunc("log_error", LogLevelError)
+		panic("Invalid context, `plugin` key not found")
+	})
 
 	return builder.Instantiate(ctx)
 }
 
-func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
-	if !ok {
-		panic("Invalid context")
-	}
-
-	offset := stack[0]
-	value := stack[1]
-	ok = p.Memory().WriteUint64Le(uint32(offset), value)
-	if !ok {
-		panic(fmt.Sprintf("could not write value '%v' at offset: %v", value, offset))
-	}
+func getHandle(h uint64) (uint32, uint32) {
+	size := h & 0xffffffff
+	offs := (h >> 32) & 0xffffffff
+	return uint32(offs), uint32(size)
 }
 
-func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
-	if !ok {
-		panic("Invalid context")
-	}
-
-	stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0]))
-	if !ok {
-		panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
-	}
-}
-
-func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
-	if !ok {
-		panic("Invalid context")
-	}
-
-	offset, ok := ctx.Value("inputOffset").(uint64)
-	if !ok {
-		panic("Invalid context")
-	}
-
-	stack[0], ok = p.Memory().ReadUint64Le(uint32(stack[0] + offset))
-	if !ok {
-		panic(fmt.Sprintf("could not read value at offset: %v", stack[0]))
-	}
-}
-
-func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
+func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
+	offs, len := getHandle(handle)
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		cp := plugin.currentPlugin()
+		buf, ok := m.Memory().Read(offs, len)
+		if !ok {
+			panic("Invalid offset in input_read")
+		}
+		n, err := io.ReadFull(plugin.Input.Reader, buf)
+		if n == 0 && (err == io.EOF || err == io.ErrUnexpectedEOF) {
+			return -1
+		}
+		if err != nil && err != io.ErrUnexpectedEOF {
+			panic(err)
+		}
+		return int64(n)
+	}
 
-		name, err := cp.ReadString(offset)
-		if err != nil {
-			panic(fmt.Errorf("Failed to read config name from memory: %v", err))
+	return -1
+}
+
+func outputWrite(ctx context.Context, m api.Module, handle uint64) {
+	offs, len := getHandle(handle)
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		buf, ok := m.Memory().Read(offs, len)
+		if !ok {
+			panic("Invalid offset in output_write")
+		}
+		plugin.Output.Writer.Write(buf)
+		plugin.Output.Writer.Flush()
+	}
+}
+
+func configRead(ctx context.Context, m api.Module, handle uint64, outhandle uint64) int64 {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		offs, len := getHandle(handle)
+		name, ok := m.Memory().Read(offs, len)
+		if !ok {
+			panic(fmt.Errorf("Failed to read config name from memory"))
 		}
 
-		value, ok := plugin.Config[name]
+		value, ok := plugin.Config[string(name)]
 		if !ok {
 			// Return 0 without an error if key is not found
-			return 0
+			return -1
 		}
 
-		offset, err = cp.WriteString(value)
-		if err != nil {
-			panic(fmt.Errorf("Failed to write config value to memory: %v", err))
-		}
-
-		return offset
+		offs, len = getHandle(outhandle)
+		m.Memory().WriteString(offs, value)
+		return int64(len)
 	}
 
 	panic("Invalid context, `plugin` key not found")
 }
 
 func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		cp := plugin.currentPlugin()
+	// if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	// cp := plugin.currentPlugin(m)
 
-		name, err := cp.ReadString(offset)
-		if err != nil {
-			panic(fmt.Errorf("Failed to read var name from memory: %v", err))
-		}
+	// name, err := cp.ReadString(offset)
+	// if err != nil {
+	// 	panic(fmt.Errorf("Failed to read var name from memory: %v", err))
+	// }
 
-		value, ok := plugin.Var[name]
-		if !ok {
-			// Return 0 without an error if key is not found
-			return 0
-		}
+	// value, ok := plugin.Var[name]
+	// if !ok {
+	// 	// Return 0 without an error if key is not found
+	// 	return 0
+	// }
 
-		offset, err = cp.WriteBytes(value)
-		if err != nil {
-			panic(fmt.Errorf("Failed to write var value to memory: %v", err))
-		}
+	// offset, err = cp.WriteBytes(value)
+	// if err != nil {
+	// 	panic(fmt.Errorf("Failed to write var value to memory: %v", err))
+	// }
 
-		return offset
-	}
+	// return offset
+	// }
 
 	panic("Invalid context, `plugin` key not found")
 }
 
 func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
-	plugin, ok := ctx.Value("plugin").(*Plugin)
-	if !ok {
-		panic("Invalid context, `plugin` key not found")
-	}
+	// plugin, ok := ctx.Value("plugin").(*Plugin)
+	// if !ok {
+	// 	panic("Invalid context, `plugin` key not found")
+	// }
 
-	if plugin.MaxVarBytes == 0 {
-		panic("Vars are disabled by this host")
-	}
+	// if plugin.MaxVarBytes == 0 {
+	// 	panic("Vars are disabled by this host")
+	// }
 
-	cp := plugin.currentPlugin()
+	// cp := plugin.currentPlugin()
 
-	name, err := cp.ReadString(nameOffset)
-	if err != nil {
-		panic(fmt.Errorf("Failed to read var name from memory: %v", err))
-	}
+	// name, err := cp.ReadString(nameOffset)
+	// if err != nil {
+	// 	panic(fmt.Errorf("Failed to read var name from memory: %v", err))
+	// }
 
-	// Remove if the value offset is 0
-	if valueOffset == 0 {
-		delete(plugin.Var, name)
-		return
-	}
+	// // Remove if the value offset is 0
+	// if valueOffset == 0 {
+	// 	delete(plugin.Var, name)
+	// 	return
+	// }
 
-	value, err := cp.ReadBytes(valueOffset)
-	if err != nil {
-		panic(fmt.Errorf("Failed to read var value from memory: %v", err))
-	}
+	// value, err := cp.ReadBytes(valueOffset)
+	// if err != nil {
+	// 	panic(fmt.Errorf("Failed to read var value from memory: %v", err))
+	// }
 
-	// Calculate size including current key/value
-	size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
-	for k, v := range plugin.Var {
-		size += len(k)
-		size += len(v)
-		size += int(unsafe.Sizeof([]byte{}) + unsafe.Sizeof(""))
-	}
+	// // Calculate size including current key/value
+	// size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
+	// for k, v := range plugin.Var {
+	// 	size += len(k)
+	// 	size += len(v)
+	// 	size += int(unsafe.Sizeof([]byte{}) + unsafe.Sizeof(""))
+	// }
 
-	if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
-		panic("Variable store is full")
-	}
+	// if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
+	// 	panic("Variable store is full")
+	// }
 
-	plugin.Var[name] = value
+	// plugin.Var[name] = value
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		cp := plugin.currentPlugin()
+	// if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	// 	cp := plugin.currentPlugin()
 
-		requestJson, err := cp.ReadBytes(requestOffset)
-		var request HttpRequest
-		err = json.Unmarshal(requestJson, &request)
-		if err != nil {
-			panic(fmt.Errorf("Invalid HTTP Request: %v", err))
-		}
+	// 	requestJson, err := cp.ReadBytes(requestOffset)
+	// 	var request HttpRequest
+	// 	err = json.Unmarshal(requestJson, &request)
+	// 	if err != nil {
+	// 		panic(fmt.Errorf("Invalid HTTP Request: %v", err))
+	// 	}
 
-		url, err := url.Parse(request.Url)
-		if err != nil {
-			panic(fmt.Errorf("Invalid Url: %v", err))
-		}
+	// 	url, err := url.Parse(request.Url)
+	// 	if err != nil {
+	// 		panic(fmt.Errorf("Invalid Url: %v", err))
+	// 	}
 
-		// deny all requests by default
-		hostMatches := false
-		for _, allowedHost := range plugin.AllowedHosts {
-			if allowedHost == url.Hostname() {
-				hostMatches = true
-				break
-			}
+	// 	// deny all requests by default
+	// 	hostMatches := false
+	// 	for _, allowedHost := range plugin.AllowedHosts {
+	// 		if allowedHost == url.Hostname() {
+	// 			hostMatches = true
+	// 			break
+	// 		}
 
-			pattern := glob.MustCompile(allowedHost)
-			if pattern.Match(url.Hostname()) {
-				hostMatches = true
-				break
-			}
-		}
+	// 		pattern := glob.MustCompile(allowedHost)
+	// 		if pattern.Match(url.Hostname()) {
+	// 			hostMatches = true
+	// 			break
+	// 		}
+	// 	}
 
-		if !hostMatches {
-			panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
-		}
+	// 	if !hostMatches {
+	// 		panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
+	// 	}
 
-		var bodyReader io.Reader = nil
-		if bodyOffset != 0 {
-			body, err := cp.ReadBytes(bodyOffset)
-			if err != nil {
-				panic("Failed to read response body from memory")
-			}
+	// 	var bodyReader io.Reader = nil
+	// 	if bodyOffset != 0 {
+	// 		body, err := cp.ReadBytes(bodyOffset)
+	// 		if err != nil {
+	// 			panic("Failed to read response body from memory")
+	// 		}
 
-			cp.Free(bodyOffset)
+	// 		cp.Free(bodyOffset)
 
-			bodyReader = bytes.NewReader(body)
-		}
+	// 		bodyReader = bytes.NewReader(body)
+	// 	}
 
-		req, err := http.NewRequestWithContext(ctx, request.Method, request.Url, bodyReader)
-		if err != nil {
-			panic(err)
-		}
+	// 	req, err := http.NewRequestWithContext(ctx, request.Method, request.Url, bodyReader)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
 
-		for key, value := range request.Headers {
-			req.Header.Set(key, value)
-		}
+	// 	for key, value := range request.Headers {
+	// 		req.Header.Set(key, value)
+	// 	}
 
-		client := http.DefaultClient
-		resp, err := client.Do(req)
-		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
+	// 	client := http.DefaultClient
+	// 	resp, err := client.Do(req)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	defer resp.Body.Close()
 
-		plugin.LastStatusCode = resp.StatusCode
+	// 	plugin.LastStatusCode = resp.StatusCode
 
-		limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
-		body, err := io.ReadAll(limiter)
-		if err != nil {
-			panic(err)
-		}
+	// 	limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
+	// 	body, err := io.ReadAll(limiter)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
 
-		if len(body) == 0 {
-			return 0
-		} else {
-			offset, err := cp.WriteBytes(body)
-			if err != nil {
-				panic("Failed to write resposne body to memory")
-			}
+	// 	if len(body) == 0 {
+	// 		return 0
+	// 	} else {
+	// 		offset, err := cp.WriteBytes(body)
+	// 		if err != nil {
+	// 			panic("Failed to write resposne body to memory")
+	// 		}
 
-			return offset
-		}
-	}
+	// 		return offset
+	// 	}
+	// }
 
 	panic("Invalid context, `plugin` key not found")
 }
