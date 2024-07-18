@@ -517,43 +517,18 @@ func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) 
 	return buffer, nil
 }
 
-// GetError retrieves the error message from the last WebAssembly function call, if any.
-func (plugin *Plugin) GetError() string {
-	return plugin.GetErrorWithContext(context.Background())
-}
-
-// GetErrorWithContext retrieves the error message from the last WebAssembly function call.
-func (plugin *Plugin) GetErrorWithContext(ctx context.Context) string {
-	// errOffs, err := plugin.Runtime.Extism.ExportedFunction("error_get").Call(ctx)
-	// if err != nil {
-	// 	return ""
-	// }
-
-	// if errOffs[0] == 0 {
-	// 	return ""
-	// }
-
-	// errLen, err := plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, errOffs[0])
-	// if err != nil {
-	// 	return ""
-	// }
-
-	// mem, _ := plugin.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
-	return "ERROR"
-}
-
 // FunctionExists returns true when the named function is present in the plugin's main module
 func (plugin *Plugin) FunctionExists(name string) bool {
 	return plugin.Main.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
-func (plugin *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
+func (plugin *Plugin) Call(name string, data []byte) ([]byte, error) {
 	return plugin.CallWithContext(context.Background(), name, data)
 }
 
 // Call a function by name with the given input and context, returning the output
-func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte) ([]byte, error) {
 	if plugin.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, plugin.Timeout)
@@ -564,22 +539,22 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	err := plugin.SetInput(data)
 	if err != nil {
-		return 1, []byte{}, err
+		return []byte{}, err
 	}
 
 	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
-		return 1, []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
+		return []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
 	} else if n := len(f.Definition().ResultTypes()); n > 1 {
-		return 1, []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
+		return []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
 	}
 
 	var isStart = name == "_start"
 	if plugin.guestRuntime.init != nil && !isStart && !plugin.guestRuntime.initialized {
 		err := plugin.guestRuntime.init(ctx)
 		if err != nil {
-			return 1, []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
+			return []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
 		plugin.guestRuntime.initialized = true
 	}
@@ -601,36 +576,17 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 		}
 	}
 
-	var rc uint32
-	if len(res) == 0 {
-		// As long as there is no error, we assume the call has succeeded
-		if err == nil {
-			rc = 0
-		} else {
-			rc = 1
-		}
-	} else {
-		rc = api.DecodeU32(res[0])
-	}
-
+	// As long as there is no error, we assume the call has succeeded
 	if err != nil {
-		return rc, []byte{}, err
-	}
-
-	if rc != 0 {
-		errMsg := plugin.GetError()
-		if errMsg == "" {
-			errMsg = "Encountered an unknown error in call to Extism plugin function " + name
-		}
-		return rc, []byte{}, errors.New(errMsg)
+		return []byte{}, err
 	}
 
 	output, err := plugin.GetOutput()
 	if err != nil {
-		return rc, []byte{}, fmt.Errorf("Failed to get output: %v", err)
+		return []byte{}, fmt.Errorf("Failed to get output: %v", err)
 	}
 
-	return rc, output, nil
+	return output, nil
 }
 
 func calculateHash(data []byte) string {

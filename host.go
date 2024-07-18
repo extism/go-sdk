@@ -215,8 +215,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 		}
 		panic(string(data))
 	})
-	// hostFunc("var_get", varGet)
-	// hostFunc("var_set", varSet)
 	// hostFunc("http_request", httpRequest)
 	// hostFunc("http_status_code", httpStatusCode)
 
@@ -295,75 +293,6 @@ func configRead(ctx context.Context, m api.Module, handle uint64, outhandle uint
 	}
 
 	panic("Invalid context, `plugin` key not found")
-}
-
-func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	// if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-	// cp := plugin.currentPlugin(m)
-
-	// name, err := cp.ReadString(offset)
-	// if err != nil {
-	// 	panic(fmt.Errorf("Failed to read var name from memory: %v", err))
-	// }
-
-	// value, ok := plugin.Var[name]
-	// if !ok {
-	// 	// Return 0 without an error if key is not found
-	// 	return 0
-	// }
-
-	// offset, err = cp.WriteBytes(value)
-	// if err != nil {
-	// 	panic(fmt.Errorf("Failed to write var value to memory: %v", err))
-	// }
-
-	// return offset
-	// }
-
-	panic("Invalid context, `plugin` key not found")
-}
-
-func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
-	// plugin, ok := ctx.Value("plugin").(*Plugin)
-	// if !ok {
-	// 	panic("Invalid context, `plugin` key not found")
-	// }
-
-	// if plugin.MaxVarBytes == 0 {
-	// 	panic("Vars are disabled by this host")
-	// }
-
-	// cp := plugin.currentPlugin()
-
-	// name, err := cp.ReadString(nameOffset)
-	// if err != nil {
-	// 	panic(fmt.Errorf("Failed to read var name from memory: %v", err))
-	// }
-
-	// // Remove if the value offset is 0
-	// if valueOffset == 0 {
-	// 	delete(plugin.Var, name)
-	// 	return
-	// }
-
-	// value, err := cp.ReadBytes(valueOffset)
-	// if err != nil {
-	// 	panic(fmt.Errorf("Failed to read var value from memory: %v", err))
-	// }
-
-	// // Calculate size including current key/value
-	// size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
-	// for k, v := range plugin.Var {
-	// 	size += len(k)
-	// 	size += len(v)
-	// 	size += int(unsafe.Sizeof([]byte{}) + unsafe.Sizeof(""))
-	// }
-
-	// if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
-	// 	panic("Variable store is full")
-	// }
-
-	// plugin.Var[name] = value
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
