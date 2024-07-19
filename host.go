@@ -205,6 +205,8 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 	hostFunc("input_read", inputRead)
 	hostFunc("output_write", outputWrite)
 	hostFunc("config_read", configRead)
+	hostFunc("stack_push", stackPush)
+	hostFunc("stack_pop", stackPop)
 
 	hostFunc("error", func(ctx context.Context, m api.Module, handle uint64) {
 		offs, len := getHandle(handle)
@@ -240,6 +242,20 @@ func getHandle(h uint64) (uint32, uint32) {
 	return uint32(offs), uint32(size)
 }
 
+func stackPush(ctx context.Context, m api.Module) {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		plugin.Input.push()
+		plugin.Output.push()
+	}
+}
+
+func stackPop(ctx context.Context, m api.Module) {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		plugin.Input.pop()
+		plugin.Output.pop()
+	}
+}
+
 func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
 	offs, len := getHandle(handle)
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
@@ -247,7 +263,7 @@ func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
 		if !ok {
 			panic("Invalid offset in input_read")
 		}
-		n, err := plugin.Input.read(buf)
+		n, err := plugin.Input.current().read(buf)
 		if err == io.EOF {
 			return -1
 		}
@@ -267,7 +283,7 @@ func outputWrite(ctx context.Context, m api.Module, handle uint64) {
 		if !ok {
 			panic("Invalid offset in output_write")
 		}
-		plugin.Output.write(buf)
+		plugin.Output.current().write(buf)
 	}
 }
 

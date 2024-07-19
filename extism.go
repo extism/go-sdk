@@ -134,6 +134,34 @@ func (l LogLevel) String() string {
 	return s
 }
 
+type pipeQueue struct {
+	queue []pipe
+}
+
+func newPipeQueue() pipeQueue {
+	return pipeQueue{queue: []pipe{}}
+}
+
+func (c *pipeQueue) current() *pipe {
+	if len(c.queue) == 0 {
+		c.queue = append(c.queue, newPipe())
+	}
+
+	return &c.queue[len(c.queue)-1]
+}
+
+func (c *pipeQueue) push() *pipe {
+	c.queue = append(c.queue, newPipe())
+	return &c.queue[len(c.queue)-1]
+}
+
+func (c *pipeQueue) pop() {
+	if len(c.queue) == 0 {
+		return
+	}
+	c.queue = c.queue[1:]
+}
+
 // Plugin is used to call WASM functions
 type Plugin struct {
 	Runtime *Runtime
@@ -141,16 +169,13 @@ type Plugin struct {
 	Main    api.Module
 	Timeout time.Duration
 	Config  map[string]string
-	Input   pipe
-	Output  pipe
+	Input   pipeQueue
+	Output  pipeQueue
 
-	// NOTE: maybe we can have some nice methods for getting/setting vars
-	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
 	LastStatusCode       int
 	MaxHttpResponseBytes int64
-	MaxVarBytes          int64
 	log                  func(LogLevel, string)
 	logLevel             LogLevel
 	guestRuntime         guestRuntime
@@ -506,11 +531,6 @@ func NewPlugin(
 		httpMax = int64(manifest.Memory.MaxHttpResponseBytes)
 	}
 
-	varMax := int64(1024 * 1024)
-	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
-		varMax = int64(manifest.Memory.MaxVarBytes)
-	}
-
 	for _, m := range modules {
 		if m.Name() == "main" {
 			p := &Plugin{
@@ -518,17 +538,15 @@ func NewPlugin(
 				Modules:              modules,
 				Main:                 m,
 				Config:               manifest.Config,
-				Var:                  map[string][]byte{},
 				AllowedHosts:         manifest.AllowedHosts,
 				AllowedPaths:         manifest.AllowedPaths,
 				LastStatusCode:       0,
 				Timeout:              time.Duration(manifest.Timeout) * time.Millisecond,
 				MaxHttpResponseBytes: httpMax,
-				MaxVarBytes:          varMax,
 				log:                  logStd,
 				logLevel:             logLevel,
-				Input:                newPipe(),
-				Output:               newPipe(),
+				Input:                newPipeQueue(),
+				Output:               newPipeQueue(),
 			}
 
 			p.guestRuntime = detectGuestRuntime(ctx, p)
@@ -548,7 +566,7 @@ func (plugin *Plugin) SetInput(data []byte) error {
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) error {
-	_, err := plugin.Input.write(data)
+	_, err := plugin.Input.current().write(data)
 	if err != nil {
 		return err
 	}
@@ -563,7 +581,7 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	buffer := plugin.Output.data
+	buffer := plugin.Output.current().data
 	// if err != nil {
 	// 	return []byte{}, err
 	// }
