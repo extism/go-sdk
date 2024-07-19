@@ -207,7 +207,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 	hostFunc("config_read", configRead)
 
 	hostFunc("error", func(ctx context.Context, m api.Module, handle uint64) {
-
 		offs, len := getHandle(handle)
 		data, ok := m.Memory().Read(offs, len)
 		if !ok {
@@ -248,11 +247,11 @@ func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
 		if !ok {
 			panic("Invalid offset in input_read")
 		}
-		n, err := io.ReadFull(plugin.Input.Reader, buf)
-		if n == 0 && (err == io.EOF || err == io.ErrUnexpectedEOF) {
+		n, err := plugin.Input.read(buf)
+		if err == io.EOF {
 			return -1
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
+		if err != nil {
 			panic(err)
 		}
 		return int64(n)
@@ -268,8 +267,7 @@ func outputWrite(ctx context.Context, m api.Module, handle uint64) {
 		if !ok {
 			panic("Invalid offset in output_write")
 		}
-		plugin.Output.Writer.Write(buf)
-		plugin.Output.Writer.Flush()
+		plugin.Output.write(buf)
 	}
 }
 

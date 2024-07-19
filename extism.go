@@ -1,8 +1,8 @@
 package extism
 
 import (
-	"bufio"
-	"bytes"
+	// "bufio"
+	// "bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -24,6 +25,62 @@ import (
 
 //go:embed extism-runtime.wasm
 var extismRuntimeWasm []byte
+
+type pipe struct {
+	lock   sync.Mutex
+	closed bool
+	data   []byte
+}
+
+func newPipe() pipe {
+	return pipe{
+		lock:   sync.Mutex{},
+		closed: false,
+		data:   []byte{},
+	}
+}
+
+func (p *pipe) close() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.closed = true
+}
+
+func (p *pipe) reset() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.closed = false
+	p.data = []byte{}
+}
+
+func (p *pipe) write(data []byte) (int, error) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if p.closed {
+		return -1, errors.New("Buffer is closed for writing")
+	}
+	p.data = append(p.data, data...)
+	return len(data), nil
+}
+
+func (p *pipe) read(data []byte) (int, error) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	blen := len(p.data)
+
+	if blen == 0 {
+		return -1, io.EOF
+	}
+
+	datalen := len(data)
+	if datalen > blen {
+		datalen = blen
+	}
+
+	n := copy(data, p.data[:datalen])
+	p.data = p.data[n:]
+	return n, nil
+}
 
 // Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
@@ -84,8 +141,8 @@ type Plugin struct {
 	Main    api.Module
 	Timeout time.Duration
 	Config  map[string]string
-	Input   *bufio.ReadWriter
-	Output  *bufio.ReadWriter
+	Input   pipe
+	Output  pipe
 
 	// NOTE: maybe we can have some nice methods for getting/setting vars
 	Var                  map[string][]byte
@@ -454,8 +511,6 @@ func NewPlugin(
 		varMax = int64(manifest.Memory.MaxVarBytes)
 	}
 
-	output := bytes.NewBuffer([]byte{})
-	input := bytes.NewBuffer([]byte{})
 	for _, m := range modules {
 		if m.Name() == "main" {
 			p := &Plugin{
@@ -472,8 +527,8 @@ func NewPlugin(
 				MaxVarBytes:          varMax,
 				log:                  logStd,
 				logLevel:             logLevel,
-				Input:                bufio.NewReadWriter(bufio.NewReader(input), bufio.NewWriter(input)),
-				Output:               bufio.NewReadWriter(bufio.NewReader(output), bufio.NewWriter(output)),
+				Input:                newPipe(),
+				Output:               newPipe(),
 			}
 
 			p.guestRuntime = detectGuestRuntime(ctx, p)
@@ -493,12 +548,10 @@ func (plugin *Plugin) SetInput(data []byte) error {
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) error {
-	_, err := plugin.Input.Writer.Write(data)
+	_, err := plugin.Input.write(data)
 	if err != nil {
 		return err
 	}
-
-	plugin.Input.Writer.Flush()
 
 	return nil
 }
@@ -510,10 +563,10 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	buffer, err := io.ReadAll(plugin.Output.Reader)
-	if err != nil {
-		return []byte{}, err
-	}
+	buffer := plugin.Output.data
+	// if err != nil {
+	// 	return []byte{}, err
+	// }
 	return buffer, nil
 }
 
