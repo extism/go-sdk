@@ -314,6 +314,8 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 
 				plugin.Log(level, message)
 
+				plugin.currentPlugin().Free(offset)
+
 				return
 			}
 
@@ -407,6 +409,8 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 			panic(fmt.Errorf("Failed to read var name from memory: %v", err))
 		}
 
+		cp.Free(offset)
+
 		value, ok := plugin.Var[name]
 		if !ok {
 			// Return 0 without an error if key is not found
@@ -441,6 +445,8 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 		panic(fmt.Errorf("Failed to read var name from memory: %v", err))
 	}
 
+	cp.Free(nameOffset)
+
 	// Remove if the value offset is 0
 	if valueOffset == 0 {
 		delete(plugin.Var, name)
@@ -451,6 +457,8 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 	if err != nil {
 		panic(fmt.Errorf("Failed to read var value from memory: %v", err))
 	}
+
+	cp.Free(valueOffset)
 
 	// Calculate size including current key/value
 	size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
@@ -474,6 +482,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 		requestJson, err := cp.ReadBytes(requestOffset)
 		var request HttpRequest
 		err = json.Unmarshal(requestJson, &request)
+		cp.Free(requestOffset)
 		if err != nil {
 			panic(fmt.Errorf("Invalid HTTP Request: %v", err))
 		}
