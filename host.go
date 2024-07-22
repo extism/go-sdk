@@ -154,50 +154,6 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
 
-	// wrap := func(name string, params []ValueType, results []ValueType) {
-	// 	f := extism.ExportedFunction(name)
-	// 	builder.
-	// 		NewFunctionBuilder().
-	// 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
-	// 			err := f.CallWithStack(ctx, stack)
-	// 			if err != nil {
-	// 				panic(err)
-	// 			}
-	// 		}), params, results).
-	// 		Export(name)
-	// }
-
-	// wrap("alloc", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	// wrap("free", []ValueType{ValueTypeI64}, []ValueType{})
-	// wrap("load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	// wrap("input_load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	// wrap("store_u64", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	// wrap("store_u8", []ValueType{ValueTypeI64, ValueTypeI32}, []ValueType{})
-	// wrap("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	// wrap("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	// wrap("input_length", []ValueType{}, []ValueType{ValueTypeI64})
-	// wrap("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	// wrap("output_length", []ValueType{}, []ValueType{ValueTypeI64})
-	// wrap("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	// wrap("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	// wrap("length_unsafe", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	// wrap("reset", []ValueType{}, []ValueType{})
-	// wrap("error_set", []ValueType{ValueTypeI64}, []ValueType{})
-	// wrap("error_get", []ValueType{}, []ValueType{ValueTypeI64})
-	// wrap("memory_bytes", []ValueType{}, []ValueType{ValueTypeI64})
-
-	// builder.NewFunctionBuilder().
-	// 	WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
-	// 	Export("input_load_u64")
-
-	// builder.NewFunctionBuilder().
-	// 	WithGoModuleFunction(api.GoModuleFunc(load_u64), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
-	// 	Export("load_u64")
-
-	// builder.NewFunctionBuilder().
-	// 	WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{}).
-	// 	Export("store_u64")
-
 	hostFunc := func(name string, f interface{}) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
 	}
@@ -276,15 +232,17 @@ func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
 	return -1
 }
 
-func outputWrite(ctx context.Context, m api.Module, handle uint64) {
+func outputWrite(ctx context.Context, m api.Module, handle uint64) int64 {
 	offs, len := getHandle(handle)
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
 		buf, ok := m.Memory().Read(offs, len)
 		if !ok {
 			panic("Invalid offset in output_write")
 		}
-		plugin.Output.current().write(buf)
+		n, _ := plugin.Output.current().write(buf)
+		return int64(n)
 	}
+	return -1
 }
 
 func configRead(ctx context.Context, m api.Module, handle uint64, outhandle uint64) int64 {
