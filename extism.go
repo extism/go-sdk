@@ -23,6 +23,13 @@ import (
 //go:embed extism-runtime.wasm
 var extismRuntimeWasm []byte
 
+//go:embed extism-runtime.wasm.version
+var extismRuntimeWasmVersion string
+
+func RuntimeVersion() string {
+	return extismRuntimeWasmVersion
+}
+
 // Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
 	Wazero  wazero.Runtime
