@@ -282,18 +282,21 @@ func configRead(ctx context.Context, m api.Module, handle uint64, outhandle uint
 
 func configLength(ctx context.Context, m api.Module, handle uint64) int64 {
 	offs, length := getHandle(handle)
-	name, ok := m.Memory().Read(offs, length)
-	if !ok {
-		panic(fmt.Errorf("Failed to read config name from memory"))
-	}
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		name, ok := m.Memory().Read(offs, length)
+		if !ok {
+			panic(fmt.Errorf("Failed to read config name from memory"))
+		}
 
-	value, ok := vars[string(name)]
-	if !ok {
-		// Return 0 without an error if key is not found
-		return -1
-	}
+		value, ok := plugin.Config[string(name)]
+		if !ok {
+			// Return 0 without an error if key is not found
+			return -1
+		}
 
-	return int64(len(value))
+		return int64(len(value))
+	}
+	panic("Invalid context, `plugin` key not found")
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
