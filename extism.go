@@ -3,6 +3,7 @@ package extism
 import (
 	// "bufio"
 	// "bytes"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -175,6 +176,7 @@ type Plugin struct {
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
 	LastStatusCode       int
+	LastResponseBody     *bytes.Buffer
 	MaxHttpResponseBytes int64
 	log                  func(LogLevel, string)
 	logLevel             LogLevel

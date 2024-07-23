@@ -1,17 +1,17 @@
 package extism
 
 import (
-	// "bytes"
+	"bytes"
 	"context"
-	// "encoding/json"
+	"encoding/json"
 	"fmt"
 	"io"
-	// "net/http"
-	// "net/url"
+	"net/http"
+	"net/url"
 	// "unsafe"
 
 	// TODO: is there a better package for this?
-	// "github.com/gobwas/glob"
+	"github.com/gobwas/glob"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
@@ -174,7 +174,8 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 		panic(string(data))
 	})
 	// hostFunc("http_request", httpRequest)
-	// hostFunc("http_status_code", httpStatusCode)
+	hostFunc("http_status_code", httpStatusCode)
+	// hostFunc("http_body", httpBody)
 
 	hostFunc("log", func(ctx context.Context, m api.Module, level uint32, handle uint64) {
 		offs, len := getHandle(handle)
@@ -299,88 +300,103 @@ func configLength(ctx context.Context, m api.Module, handle uint64) int64 {
 	panic("Invalid context, `plugin` key not found")
 }
 
-func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
-	// if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-	// 	cp := plugin.currentPlugin()
+func httpRequest(ctx context.Context, m api.Module, requestHandle uint64, bodyHandle uint64) int64 {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		requestOffs, requestLen := getHandle(requestHandle)
+		bodyOffs, bodyLen := getHandle(bodyHandle)
 
-	// 	requestJson, err := cp.ReadBytes(requestOffset)
-	// 	var request HttpRequest
-	// 	err = json.Unmarshal(requestJson, &request)
-	// 	if err != nil {
-	// 		panic(fmt.Errorf("Invalid HTTP Request: %v", err))
-	// 	}
+		requestJson, ok := m.Memory().Read(requestOffs, requestLen)
+		if !ok {
+			panic("Invalid memory handle in http request")
+		}
+		var request HttpRequest
+		err := json.Unmarshal(requestJson, &request)
+		if err != nil {
+			panic(fmt.Errorf("Invalid HTTP Request: %v", err))
+		}
 
-	// 	url, err := url.Parse(request.Url)
-	// 	if err != nil {
-	// 		panic(fmt.Errorf("Invalid Url: %v", err))
-	// 	}
+		url, err := url.Parse(request.Url)
+		if err != nil {
+			panic(fmt.Errorf("Invalid Url: %v", err))
+		}
 
-	// 	// deny all requests by default
-	// 	hostMatches := false
-	// 	for _, allowedHost := range plugin.AllowedHosts {
-	// 		if allowedHost == url.Hostname() {
-	// 			hostMatches = true
-	// 			break
-	// 		}
+		// deny all requests by default
+		hostMatches := false
+		for _, allowedHost := range plugin.AllowedHosts {
+			if allowedHost == url.Hostname() {
+				hostMatches = true
+				break
+			}
 
-	// 		pattern := glob.MustCompile(allowedHost)
-	// 		if pattern.Match(url.Hostname()) {
-	// 			hostMatches = true
-	// 			break
-	// 		}
-	// 	}
+			pattern := glob.MustCompile(allowedHost)
+			if pattern.Match(url.Hostname()) {
+				hostMatches = true
+				break
+			}
+		}
 
-	// 	if !hostMatches {
-	// 		panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
-	// 	}
+		if !hostMatches {
+			panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
+		}
 
-	// 	var bodyReader io.Reader = nil
-	// 	if bodyOffset != 0 {
-	// 		body, err := cp.ReadBytes(bodyOffset)
-	// 		if err != nil {
-	// 			panic("Failed to read response body from memory")
-	// 		}
+		var bodyReader io.Reader = nil
+		if bodyHandle != 0 {
+			body, ok := m.Memory().Read(bodyOffs, bodyLen)
+			if !ok {
+				panic("Failed to read response body from memory")
+			}
 
-	// 		cp.Free(bodyOffset)
+			bodyReader = bytes.NewReader(body)
+		}
 
-	// 		bodyReader = bytes.NewReader(body)
-	// 	}
+		req, err := http.NewRequestWithContext(ctx, request.Method, request.Url, bodyReader)
+		if err != nil {
+			panic(err)
+		}
 
-	// 	req, err := http.NewRequestWithContext(ctx, request.Method, request.Url, bodyReader)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+		for key, value := range request.Headers {
+			req.Header.Set(key, value)
+		}
 
-	// 	for key, value := range request.Headers {
-	// 		req.Header.Set(key, value)
-	// 	}
+		client := http.DefaultClient
+		resp, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
 
-	// 	client := http.DefaultClient
-	// 	resp, err := client.Do(req)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	defer resp.Body.Close()
+		plugin.LastStatusCode = resp.StatusCode
 
-	// 	plugin.LastStatusCode = resp.StatusCode
+		limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
+		body, err := io.ReadAll(limiter)
+		if err != nil {
+			panic(err)
+		}
+		plugin.LastResponseBody = bytes.NewBuffer(body)
 
-	// 	limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
-	// 	body, err := io.ReadAll(limiter)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+		n := len(body)
 
-	// 	if len(body) == 0 {
-	// 		return 0
-	// 	} else {
-	// 		offset, err := cp.WriteBytes(body)
-	// 		if err != nil {
-	// 			panic("Failed to write resposne body to memory")
-	// 		}
+		return int64(n)
+	}
 
-	// 		return offset
-	// 	}
-	// }
+	panic("Invalid context, `plugin` key not found")
+}
+
+func httpBody(ctx context.Context, m api.Module, handle uint64) int64 {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		offs, len := getHandle(handle)
+		data, ok := m.Memory().Read(offs, len)
+		if !ok {
+			return -1
+		}
+		n, err := plugin.LastResponseBody.Read(data)
+		if err == io.EOF && n == 0 {
+			return -1
+		} else if err != nil {
+			panic(err)
+		}
+		return int64(n)
+	}
 
 	panic("Invalid context, `plugin` key not found")
 }
