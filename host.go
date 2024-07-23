@@ -158,9 +158,10 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
 	}
 
-	hostFunc("input_read", inputRead)
-	hostFunc("output_write", outputWrite)
+	hostFunc("read", read)
+	hostFunc("write", write)
 	hostFunc("config_read", configRead)
+	hostFunc("config_length", configLength)
 	hostFunc("stack_push", stackPush)
 	hostFunc("stack_pop", stackPop)
 
@@ -212,14 +213,20 @@ func stackPop(ctx context.Context, m api.Module) {
 	}
 }
 
-func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
+func read(ctx context.Context, m api.Module, stream int32, handle uint64) int64 {
 	offs, len := getHandle(handle)
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
 		buf, ok := m.Memory().Read(offs, len)
 		if !ok {
 			panic("Invalid offset in input_read")
 		}
-		n, err := plugin.Input.current().read(buf)
+		var p pipeQueue
+		if stream == 0 {
+			p = plugin.Input
+		} else {
+			p = plugin.Output
+		}
+		n, err := p.current().read(buf)
 		if err == io.EOF {
 			return -1
 		}
@@ -232,14 +239,20 @@ func inputRead(ctx context.Context, m api.Module, handle uint64) int64 {
 	return -1
 }
 
-func outputWrite(ctx context.Context, m api.Module, handle uint64) int64 {
+func write(ctx context.Context, m api.Module, stream int32, handle uint64) int64 {
 	offs, len := getHandle(handle)
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
 		buf, ok := m.Memory().Read(offs, len)
 		if !ok {
 			panic("Invalid offset in output_write")
 		}
-		n, _ := plugin.Output.current().write(buf)
+		var p pipeQueue
+		if stream == 0 {
+			p = plugin.Input
+		} else {
+			p = plugin.Output
+		}
+		n, _ := p.current().write(buf)
 		return int64(n)
 	}
 	return -1
@@ -265,6 +278,22 @@ func configRead(ctx context.Context, m api.Module, handle uint64, outhandle uint
 	}
 
 	panic("Invalid context, `plugin` key not found")
+}
+
+func configLength(ctx context.Context, m api.Module, handle uint64) int64 {
+	offs, length := getHandle(handle)
+	name, ok := m.Memory().Read(offs, length)
+	if !ok {
+		panic(fmt.Errorf("Failed to read config name from memory"))
+	}
+
+	value, ok := vars[string(name)]
+	if !ok {
+		// Return 0 without an error if key is not found
+		return -1
+	}
+
+	return int64(len(value))
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
