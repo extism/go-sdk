@@ -159,6 +159,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) 
 	}
 
 	hostFunc("read", read)
+	hostFunc("bytes_remaining", bytesRemaining)
 	hostFunc("write", write)
 	hostFunc("config_read", configRead)
 	hostFunc("config_length", configLength)
@@ -234,6 +235,21 @@ func read(ctx context.Context, m api.Module, stream int32, handle uint64) int64 
 		if err != nil {
 			panic(err)
 		}
+		return int64(n)
+	}
+
+	return -1
+}
+
+func bytesRemaining(ctx context.Context, m api.Module, stream int32) int64 {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		var p pipeQueue
+		if stream == 0 {
+			p = plugin.Input
+		} else {
+			p = plugin.Output
+		}
+		n := len(p.current().data)
 		return int64(n)
 	}
 
