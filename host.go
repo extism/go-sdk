@@ -203,15 +203,13 @@ func getHandle(h uint64) (uint32, uint32) {
 
 func stackPush(ctx context.Context, m api.Module) {
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		plugin.Input.push()
-		plugin.Output.push()
+		plugin.stack.push()
 	}
 }
 
 func stackPop(ctx context.Context, m api.Module) {
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		plugin.Input.pop()
-		plugin.Output.pop()
+		plugin.stack.pop()
 	}
 }
 
@@ -222,13 +220,13 @@ func read(ctx context.Context, m api.Module, stream int32, handle uint64) int64 
 		if !ok {
 			panic("Invalid offset in input_read")
 		}
-		var p pipeQueue
+		var p *pipe
 		if stream == 0 {
-			p = plugin.Input
+			p = &plugin.stack.current().input
 		} else {
-			p = plugin.Output
+			p = &plugin.stack.current().output
 		}
-		n, err := p.current().read(buf)
+		n, err := p.read(buf)
 		if err == io.EOF {
 			return -1
 		}
@@ -243,13 +241,13 @@ func read(ctx context.Context, m api.Module, stream int32, handle uint64) int64 
 
 func bytesRemaining(ctx context.Context, m api.Module, stream int32) int64 {
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
-		var p pipeQueue
+		var p *pipe
 		if stream == 0 {
-			p = plugin.Input
+			p = &plugin.stack.current().input
 		} else {
-			p = plugin.Output
+			p = &plugin.stack.current().output
 		}
-		n := len(p.current().data)
+		n := len(p.data)
 		return int64(n)
 	}
 
@@ -263,13 +261,13 @@ func write(ctx context.Context, m api.Module, stream int32, handle uint64) int64
 		if !ok {
 			panic("Invalid offset in output_write")
 		}
-		var p pipeQueue
+		var p *pipe
 		if stream == 0 {
-			p = plugin.Input
+			p = &plugin.stack.current().input
 		} else {
-			p = plugin.Output
+			p = &plugin.stack.current().output
 		}
-		n, _ := p.current().write(buf)
+		n, _ := p.write(buf)
 		return int64(n)
 	}
 	return -1

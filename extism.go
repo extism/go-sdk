@@ -135,32 +135,37 @@ func (l LogLevel) String() string {
 	return s
 }
 
-type pipeQueue struct {
-	queue []pipe
+type frame struct {
+	input  pipe
+	output pipe
 }
 
-func newPipeQueue() pipeQueue {
-	return pipeQueue{queue: []pipe{}}
+type stack struct {
+	frames []frame
 }
 
-func (c *pipeQueue) current() *pipe {
-	if len(c.queue) == 0 {
-		c.queue = append(c.queue, newPipe())
+func newStack() stack {
+	return stack{frames: []frame{}}
+}
+
+func (c *stack) current() *frame {
+	if len(c.frames) == 0 {
+		c.frames = append(c.frames, frame{input: newPipe(), output: newPipe()})
 	}
 
-	return &c.queue[len(c.queue)-1]
+	return &c.frames[len(c.frames)-1]
 }
 
-func (c *pipeQueue) push() *pipe {
-	c.queue = append(c.queue, newPipe())
-	return &c.queue[len(c.queue)-1]
+func (c *stack) push() *frame {
+	c.frames = append(c.frames, frame{input: newPipe(), output: newPipe()})
+	return &c.frames[len(c.frames)-1]
 }
 
-func (c *pipeQueue) pop() {
-	if len(c.queue) == 0 {
+func (c *stack) pop() {
+	if len(c.frames) == 0 {
 		return
 	}
-	c.queue = c.queue[1:]
+	c.frames = c.frames[:len(c.frames)-1]
 }
 
 // Plugin is used to call WASM functions
@@ -170,8 +175,7 @@ type Plugin struct {
 	Main    api.Module
 	Timeout time.Duration
 	Config  map[string]string
-	Input   pipeQueue
-	Output  pipeQueue
+	stack   stack
 
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
@@ -547,8 +551,7 @@ func NewPlugin(
 				MaxHttpResponseBytes: httpMax,
 				log:                  logStd,
 				logLevel:             logLevel,
-				Input:                newPipeQueue(),
-				Output:               newPipeQueue(),
+				stack:                newStack(),
 			}
 
 			p.guestRuntime = detectGuestRuntime(ctx, p)
@@ -568,7 +571,7 @@ func (plugin *Plugin) SetInput(data []byte) error {
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (plugin *Plugin) SetInputWithContext(ctx context.Context, data []byte) error {
-	_, err := plugin.Input.current().write(data)
+	_, err := plugin.stack.current().input.write(data)
 	if err != nil {
 		return err
 	}
@@ -583,7 +586,7 @@ func (plugin *Plugin) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (plugin *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	buffer := plugin.Output.current().data
+	buffer := plugin.stack.current().output.data
 	// if err != nil {
 	// 	return []byte{}, err
 	// }
