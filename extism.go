@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tetratelabs/wazero"
@@ -389,8 +390,12 @@ func NewPlugin(
 	fs := wazero.NewFSConfig()
 
 	for host, guest := range manifest.AllowedPaths {
-		// TODO: wazero supports read-only mounting, do we want to support that too?
-		fs = fs.WithDirMount(host, guest)
+		if strings.HasPrefix(host, "ro:") {
+			trimmed := strings.TrimPrefix(host, "ro:")
+			fs = fs.WithReadOnlyDirMount(trimmed, guest)
+		} else {
+			fs = fs.WithDirMount(host, guest)
+		}
 	}
 
 	moduleConfig := config.ModuleConfig
