@@ -599,12 +599,12 @@ func (plugin *Plugin) FunctionExists(name string) bool {
 }
 
 // Call a function by name with the given input, returning the output
-func (plugin *Plugin) Call(name string, data []byte) ([]byte, error) {
-	return plugin.CallWithContext(context.Background(), name, data)
+func (plugin *Plugin) Call(name string, data []byte, params ...uint64) ([]byte, []uint64, error) {
+	return plugin.CallWithContext(context.Background(), name, data, params...)
 }
 
 // Call a function by name with the given input and context, returning the output
-func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte) ([]byte, error) {
+func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []byte, params ...uint64) ([]byte, []uint64, error) {
 	if plugin.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, plugin.Timeout)
@@ -615,29 +615,29 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	err := plugin.SetInput(data)
 	if err != nil {
-		return []byte{}, err
+		return []byte{}, []uint64{}, err
 	}
 
 	var f = plugin.Main.ExportedFunction(name)
 
 	if f == nil {
-		return []byte{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
+		return []byte{}, []uint64{}, errors.New(fmt.Sprintf("Unknown function: %s", name))
 	} else if n := len(f.Definition().ResultTypes()); n > 1 {
-		return []byte{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
+		return []byte{}, []uint64{}, errors.New(fmt.Sprintf("Function %s has %v results, expected 0 or 1", name, n))
 	}
 
 	var isStart = name == "_start"
 	if plugin.guestRuntime.init != nil && !isStart && !plugin.guestRuntime.initialized {
 		err := plugin.guestRuntime.init(ctx)
 		if err != nil {
-			return []byte{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
+			return []byte{}, []uint64{}, errors.New(fmt.Sprintf("failed to initialize runtime: %v", err))
 		}
 		plugin.guestRuntime.initialized = true
 	}
 
 	plugin.Logf(LogLevelDebug, "Calling function : %v", name)
 
-	res, err := f.Call(ctx)
+	res, err := f.Call(ctx, params...)
 
 	// Try to extact WASI exit code
 	if exitErr, ok := err.(*sys.ExitError); ok {
@@ -646,23 +646,19 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 		if exitCode == 0 {
 			err = nil
 		}
-
-		if len(res) == 0 {
-			res = []uint64{api.EncodeU32(exitCode)}
-		}
 	}
 
 	// As long as there is no error, we assume the call has succeeded
 	if err != nil {
-		return []byte{}, err
+		return []byte{}, res, err
 	}
 
 	output, err := plugin.GetOutput()
 	if err != nil {
-		return []byte{}, fmt.Errorf("Failed to get output: %v", err)
+		return []byte{}, res, fmt.Errorf("Failed to get output: %v", err)
 	}
 
-	return output, nil
+	return output, res, nil
 }
 
 func calculateHash(data []byte) string {
