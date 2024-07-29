@@ -99,7 +99,10 @@ func TestCallFunction(t *testing.T) {
 
 			if assertCall(t, err, exit) {
 				var actual map[string]int
-				json.Unmarshal(output, &actual)
+				err := json.Unmarshal(output, &actual)
+				if err != nil {
+					return
+				}
 
 				assert.Equal(t, expected, actual["count"], "'%s' contains %v vowels", input, expected)
 			}
@@ -461,9 +464,14 @@ func TestLog_custom(t *testing.T) {
 	}
 
 	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
+		defer func(plugin *Plugin) {
+			err := plugin.Close()
+			if err != nil {
 
-		actual := []LogEntry{}
+			}
+		}(plugin)
+
+		var actual []LogEntry
 
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
@@ -474,6 +482,10 @@ func TestLog_custom(t *testing.T) {
 				assert.Equal(t, fmt.Sprintf("%s", level), "WARN")
 			case LogLevelError:
 				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
+			case LogLevelTrace:
+				assert.Equal(t, fmt.Sprintf("%s", level), "TRACE")
+			default:
+				t.Errorf("Unexpected log level: %s", level)
 			}
 		})
 
@@ -485,7 +497,8 @@ func TestLog_custom(t *testing.T) {
 			expected := []LogEntry{
 				{message: "this is an info log", level: LogLevelInfo},
 				{message: "this is a warning log", level: LogLevelWarn},
-				{message: "this is an erorr log", level: LogLevelError}}
+				{message: "this is an error log", level: LogLevelError},
+				{message: "this is an trace log", level: LogLevelTrace}}
 
 			assert.Equal(t, expected, actual)
 		}
