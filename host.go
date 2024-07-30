@@ -309,7 +309,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
 				message, err := plugin.currentPlugin().ReadString(offset)
 				if err != nil {
-					panic(fmt.Errorf("Failed to read log message from memory: %v", err))
+					panic(fmt.Errorf("failed to read log message from memory: %v", err))
 				}
 
 				plugin.Log(level, message)

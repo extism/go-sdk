@@ -447,7 +447,7 @@ func TestLog_default(t *testing.T) {
 			logs := buf.String()
 
 			assert.Contains(t, logs, "this is a warning log")
-			assert.Contains(t, logs, "this is an erorr log")
+			assert.Contains(t, logs, "this is an error log")
 		}
 	}
 }
