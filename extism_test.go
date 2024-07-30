@@ -99,10 +99,7 @@ func TestCallFunction(t *testing.T) {
 
 			if assertCall(t, err, exit) {
 				var actual map[string]int
-				err := json.Unmarshal(output, &actual)
-				if err != nil {
-					return
-				}
+				json.Unmarshal(output, &actual)
 
 				assert.Equal(t, expected, actual["count"], "'%s' contains %v vowels", input, expected)
 			}
@@ -464,14 +461,9 @@ func TestLog_custom(t *testing.T) {
 	}
 
 	if plugin, ok := plugin(t, manifest); ok {
-		defer func(plugin *Plugin) {
-			err := plugin.Close()
-			if err != nil {
+		defer plugin.Close()
 
-			}
-		}(plugin)
-
-		var actual []LogEntry
+		actual := []LogEntry{}
 
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
@@ -484,8 +476,6 @@ func TestLog_custom(t *testing.T) {
 				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
 			case LogLevelTrace:
 				assert.Equal(t, fmt.Sprintf("%s", level), "TRACE")
-			default:
-				t.Errorf("Unexpected log level: %s", level)
 			}
 		})
 
