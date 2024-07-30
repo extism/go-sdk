@@ -12,6 +12,7 @@ func run_test() int32 {
 	pdk.Log(pdk.LogInfo, "this is an info log")
 	pdk.Log(pdk.LogWarn, "this is a warning log")
 	pdk.Log(pdk.LogError, "this is an error log")
+	pdk.Log(pdk.LogTrace, "this is a trace log")
 
 	return 0
 }
