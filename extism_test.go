@@ -447,7 +447,7 @@ func TestLog_default(t *testing.T) {
 			logs := buf.String()
 
 			assert.Contains(t, logs, "this is a warning log")
-			assert.Contains(t, logs, "this is an erorr log")
+			assert.Contains(t, logs, "this is an error log")
 		}
 	}
 }
@@ -463,7 +463,7 @@ func TestLog_custom(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		actual := []LogEntry{}
+		var actual []LogEntry
 
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
@@ -474,6 +474,8 @@ func TestLog_custom(t *testing.T) {
 				assert.Equal(t, fmt.Sprintf("%s", level), "WARN")
 			case LogLevelError:
 				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
+			case LogLevelTrace:
+				assert.Equal(t, fmt.Sprintf("%s", level), "TRACE")
 			}
 		})
 
@@ -485,7 +487,8 @@ func TestLog_custom(t *testing.T) {
 			expected := []LogEntry{
 				{message: "this is an info log", level: LogLevelInfo},
 				{message: "this is a warning log", level: LogLevelWarn},
-				{message: "this is an erorr log", level: LogLevelError}}
+				{message: "this is an error log", level: LogLevelError},
+				{message: "this is an trace log", level: LogLevelTrace}}
 
 			assert.Equal(t, expected, actual)
 		}
