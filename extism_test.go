@@ -463,7 +463,7 @@ func TestLog_custom(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		actual := []LogEntry{}
+		var actual []LogEntry
 
 		plugin.SetLogger(func(level LogLevel, message string) {
 			actual = append(actual, LogEntry{message: message, level: level})
