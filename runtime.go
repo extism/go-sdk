@@ -25,12 +25,12 @@ type guestRuntime struct {
 func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
 	m := p.Main
 
-	runtime, ok := haskellRuntime(ctx, p, m)
+	runtime, ok := haskellRuntime(ctx, p, m.module)
 	if ok {
 		return runtime
 	}
 
-	runtime, ok = wasiRuntime(ctx, p, m)
+	runtime, ok = wasiRuntime(ctx, p, m.module)
 	if ok {
 		return runtime
 	}
