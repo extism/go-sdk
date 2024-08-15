@@ -89,6 +89,9 @@ $ go run main.go
 
 All exports have a simple interface of optional bytes in, and optional bytes out. This plug-in happens to take a string and return a JSON encoded string with a report of results.
 
+> **Note**: If you want to pass a custom `context.Context` when calling a plugin function, you can use the [extism.Plugin.CallWithContext](https://pkg.go.dev/github.com/extism/go-sdk#Plugin.CallWithContext) method instead.
+
+
 ### Plug-in State
 
 Plug-ins may be stateful or stateless. Plug-ins can maintain state between calls by the use of variables. Our count vowels plug-in remembers the total number of vowels it's ever counted in the "total" key in the result. You can see this by making subsequent calls to the export:
@@ -300,6 +303,93 @@ plugin.TraceCtx.Metadata(meta)
 _, _, _ = plugin.Call("_start", []byte("hello world"))
 plugin.Close()
 ```
+
+### Integrate with Dylibso Observe SDK
+Dylibso provides [observability SDKs](https://github.com/dylibso/observe-sdk) for WebAssembly (Wasm), enabling continuous monitoring of WebAssembly code as it executes within a runtime. It provides developers with the tools necessary to capture and emit telemetry data from Wasm code, including function execution and memory allocation traces, logs, and metrics.
+
+While Observe SDK has adapters for many popular observability platforms, it also ships with an stdout adapter:
+
+```
+ctx := context.Background()
+
+adapter := stdout.NewStdoutAdapter()
+adapter.Start(ctx)
+
+manifest := manifest("nested.c.instr.wasm")
+
+config := PluginConfig{
+    ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
+    EnableWasi:     true,
+    ObserveAdapter: adapter.AdapterBase,
+}
+
+plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+if err != nil {
+    panic(err)
+}
+
+meta := map[string]string{
+    "http.url":         "https://example.com/my-endpoint",
+    "http.status_code": "200",
+    "http.client_ip":   "192.168.1.0",
+}
+
+plugin.TraceCtx.Metadata(meta)
+
+_, _, _ = plugin.Call("_start", []byte("hello world"))
+plugin.Close()
+```
+
+### Enable filesystem access
+
+WASM plugins can read/write files outside the runtime. To do this we add `AllowedPaths` mapping of "HOST:PLUGIN" to the `extism.Manifest` of our plugin.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	extism "github.com/extism/go-sdk"
+)
+
+func main() {
+	manifest := extism.Manifest{
+		AllowedPaths: map[string]string{
+			// Here we specifify a host directory data to be linked
+			// to the /mnt directory inside the wasm runtime
+			"data": "/mnt",
+		},
+		Wasm: []extism.Wasm{
+			extism.WasmFile{
+				Path: "fs_plugin.wasm",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := extism.PluginConfig{
+		EnableWasi: true,
+	}
+	plugin, err := extism.NewPlugin(ctx, manifest, config, []extism.HostFunction{})
+
+	if err != nil {
+		fmt.Printf("Failed to initialize plugin: %v\n", err)
+		os.Exit(1)
+	}
+
+	data := []byte("Hello world, this is written from within our wasm plugin.")
+	exit, _, err := plugin.Call("write_file", data)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(int(exit))
+	}
+}
+```
+
+> *Note*: In order for filesystem APIs to work the plugin needs to be compiled with WASI target. Source code for the plugin can be found [here](https://github.com/extism/go-pdk/blob/main/example/fs/main.go) and is written in Go, but it could be written in any of our PDK languages.
 
 ## Build example plugins
 

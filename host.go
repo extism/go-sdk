@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"unsafe"
 
 	// TODO: is there a better package for this?
 	"github.com/gobwas/glob"
@@ -122,7 +123,12 @@ func (p *CurrentPlugin) Memory() api.Memory {
 
 // Alloc a new memory block of the given length, returning its offset
 func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(p.plugin.Runtime.ctx, uint64(n))
+	return p.AllocWithContext(context.Background(), n)
+}
+
+// Alloc a new memory block of the given length, returning its offset
+func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64, error) {
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(n))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -134,7 +140,12 @@ func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
 
 // Free the memory block specified by the given offset
 func (p *CurrentPlugin) Free(offset uint64) error {
-	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(p.plugin.Runtime.ctx, uint64(offset))
+	return p.FreeWithContext(context.Background(), offset)
+}
+
+// Free the memory block specified by the given offset
+func (p *CurrentPlugin) FreeWithContext(ctx context.Context, offset uint64) error {
+	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(ctx, uint64(offset))
 	if err != nil {
 		return err
 	}
@@ -144,7 +155,12 @@ func (p *CurrentPlugin) Free(offset uint64) error {
 
 // Length returns the number of bytes allocated at the specified offset
 func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(p.plugin.Runtime.ctx, uint64(offs))
+	return p.LengthWithContext(context.Background(), offs)
+}
+
+// Length returns the number of bytes allocated at the specified offset
+func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uint64, error) {
+	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, uint64(offs))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -414,6 +430,10 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 		panic("Invalid context, `plugin` key not found")
 	}
 
+	if plugin.MaxVarBytes == 0 {
+		panic("Vars are disabled by this host")
+	}
+
 	cp := plugin.currentPlugin()
 
 	name, err := cp.ReadString(nameOffset)
@@ -421,27 +441,30 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 		panic(fmt.Errorf("Failed to read var name from memory: %v", err))
 	}
 
-	size := 0
-	for _, v := range plugin.Var {
-		size += len(v)
-	}
-
-	// If the store is larger than 100MB then stop adding things
-	if size > 1024*1024*100 && valueOffset != 0 {
-		panic("Variable store is full")
-	}
-
 	// Remove if the value offset is 0
 	if valueOffset == 0 {
 		delete(plugin.Var, name)
-	} else {
-		value, err := cp.ReadBytes(valueOffset)
-		if err != nil {
-			panic(fmt.Errorf("Failed to read var value from memory: %v", err))
-		}
-
-		plugin.Var[name] = value
+		return
 	}
+
+	value, err := cp.ReadBytes(valueOffset)
+	if err != nil {
+		panic(fmt.Errorf("Failed to read var value from memory: %v", err))
+	}
+
+	// Calculate size including current key/value
+	size := int(unsafe.Sizeof([]byte{})+unsafe.Sizeof("")) + len(name) + len(value)
+	for k, v := range plugin.Var {
+		size += len(k)
+		size += len(v)
+		size += int(unsafe.Sizeof([]byte{}) + unsafe.Sizeof(""))
+	}
+
+	if size >= int(plugin.MaxVarBytes) && valueOffset != 0 {
+		panic("Variable store is full")
+	}
+
+	plugin.Var[name] = value
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
@@ -509,9 +532,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 
 		plugin.LastStatusCode = resp.StatusCode
 
-		// TODO: make this limit configurable
-		// TODO: the rust implementation silently truncates the response body, should we keep the behavior here?
-		limiter := http.MaxBytesReader(nil, resp.Body, 1024*1024*50)
+		limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
 		body, err := io.ReadAll(limiter)
 		if err != nil {
 			panic(err)
