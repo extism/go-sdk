@@ -488,7 +488,7 @@ func TestLog_custom(t *testing.T) {
 				{message: "this is an info log", level: LogLevelInfo},
 				{message: "this is a warning log", level: LogLevelWarn},
 				{message: "this is an error log", level: LogLevelError},
-				{message: "this is an trace log", level: LogLevelTrace}}
+				{message: "this is a trace log", level: LogLevelTrace}}
 
 			assert.Equal(t, expected, actual)
 		}
