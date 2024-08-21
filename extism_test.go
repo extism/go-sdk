@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	observe "github.com/dylibso/observe-sdk/go"
+	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
@@ -761,6 +763,79 @@ func TestInputOffset(t *testing.T) {
 			assert.Equal(t, len(input_data), int(output[0]))
 		}
 	}
+}
+
+func TestObserve(t *testing.T) {
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+
+	adapter := stdout.NewStdoutAdapter()
+	adapter.Start(ctx)
+
+	manifest := manifest("nested.c.instr.wasm")
+
+	config := PluginConfig{
+		ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
+		EnableWasi:     true,
+		ObserveAdapter: adapter.AdapterBase,
+		ObserveOptions: &observe.Options{
+			SpanFilter:        &observe.SpanFilter{MinDuration: 1 * time.Nanosecond},
+			ChannelBufferSize: 1024,
+		},
+	}
+
+	// Plugin 1
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	meta := map[string]string{
+		"http.url":         "https://example.com/my-endpoint",
+		"http.status_code": "200",
+		"http.client_ip":   "192.168.1.0",
+	}
+
+	plugin.TraceCtx.Metadata(meta)
+
+	_, _, _ = plugin.Call("_start", []byte("hello world"))
+	plugin.Close()
+
+	// HACK: make sure we give enough time for the events to get flushed
+	time.Sleep(100 * time.Millisecond)
+
+	actual := buf.String()
+	assert.Contains(t, actual, "  Call to _start took")
+	assert.Contains(t, actual, "      Call to main took")
+	assert.Contains(t, actual, "        Call to one took")
+	assert.Contains(t, actual, "          Call to two took")
+	assert.Contains(t, actual, "            Call to three took")
+	assert.Contains(t, actual, "              Call to printf took")
+
+	// Reset underlying buffer
+	buf.Reset()
+
+	// Plugin 2
+	plugin2, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		panic(err)
+	}
+
+	_, _, _ = plugin2.Call("_start", []byte("hello world"))
+	plugin2.Close()
+
+	// HACK: make sure we give enough time for the events to get flushed
+	time.Sleep(100 * time.Millisecond)
+
+	actual2 := buf.String()
+	assert.Contains(t, actual2, "  Call to _start took")
+	assert.Contains(t, actual2, "      Call to main took")
+	assert.Contains(t, actual2, "        Call to one took")
+	assert.Contains(t, actual2, "          Call to two took")
+	assert.Contains(t, actual2, "            Call to three took")
+	assert.Contains(t, actual2, "              Call to printf took")
 }
 
 // make sure cancelling the context given to NewPlugin doesn't affect plugin calls
