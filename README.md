@@ -304,42 +304,6 @@ _, _, _ = plugin.Call("_start", []byte("hello world"))
 plugin.Close()
 ```
 
-### Integrate with Dylibso Observe SDK
-Dylibso provides [observability SDKs](https://github.com/dylibso/observe-sdk) for WebAssembly (Wasm), enabling continuous monitoring of WebAssembly code as it executes within a runtime. It provides developers with the tools necessary to capture and emit telemetry data from Wasm code, including function execution and memory allocation traces, logs, and metrics.
-
-While Observe SDK has adapters for many popular observability platforms, it also ships with an stdout adapter:
-
-```
-ctx := context.Background()
-
-adapter := stdout.NewStdoutAdapter()
-adapter.Start(ctx)
-
-manifest := manifest("nested.c.instr.wasm")
-
-config := PluginConfig{
-    ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
-    EnableWasi:     true,
-    ObserveAdapter: adapter.AdapterBase,
-}
-
-plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-if err != nil {
-    panic(err)
-}
-
-meta := map[string]string{
-    "http.url":         "https://example.com/my-endpoint",
-    "http.status_code": "200",
-    "http.client_ip":   "192.168.1.0",
-}
-
-plugin.TraceCtx.Metadata(meta)
-
-_, _, _ = plugin.Call("_start", []byte("hello world"))
-plugin.Close()
-```
-
 ### Enable filesystem access
 
 WASM plugins can read/write files outside the runtime. To do this we add `AllowedPaths` mapping of "HOST:PLUGIN" to the `extism.Manifest` of our plugin.

@@ -3,7 +3,7 @@ module github.com/extism/go-sdk
 go 1.22
 
 require (
-	github.com/dylibso/observe-sdk/go v0.0.0-20240815143955-7e0389165219
+	github.com/dylibso/observe-sdk/go v0.0.0-20240819160327-2d926c5d788a
 	github.com/gobwas/glob v0.2.3
 	github.com/stretchr/testify v1.9.0
 	github.com/tetratelabs/wazero v1.8.0
