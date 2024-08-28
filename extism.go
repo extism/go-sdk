@@ -66,28 +66,26 @@ type HttpRequest struct {
 type LogLevel uint8
 
 const (
-	logLevelUnset LogLevel = iota // unexporting this intentionally so its only ever the default
-	LogLevelOff
-	LogLevelError
-	LogLevelWarn
-	LogLevelInfo
+	LogLevelTrace LogLevel = iota
 	LogLevelDebug
-	LogLevelTrace
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
 )
 
 func (l LogLevel) String() string {
 	s := ""
 	switch l {
-	case LogLevelError:
-		s = "ERROR"
-	case LogLevelWarn:
-		s = "WARN"
-	case LogLevelInfo:
-		s = "INFO"
-	case LogLevelDebug:
-		s = "DEBUG"
 	case LogLevelTrace:
 		s = "TRACE"
+	case LogLevelDebug:
+		s = "DEBUG"
+	case LogLevelInfo:
+		s = "INFO"
+	case LogLevelWarn:
+		s = "WARN"
+	case LogLevelError:
+		s = "ERROR"
 	}
 	return s
 }
@@ -473,7 +471,7 @@ func NewPlugin(
 	}
 
 	logLevel := LogLevelWarn
-	if config.LogLevel != logLevelUnset {
+	if config.LogLevel != LogLevelOff {
 		logLevel = config.LogLevel
 	}
 

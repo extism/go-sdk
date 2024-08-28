@@ -303,10 +303,16 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("var_set", varSet)
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
+	hostFunc("get_log_level", getLogLevel)
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
 			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+				// only log if the log level is less than or equal to the current log level
+				if plugin.logLevel > level {
+					return
+				}
+
 				message, err := plugin.currentPlugin().ReadString(offset)
 				if err != nil {
 					panic(fmt.Errorf("failed to read log message from memory: %v", err))
@@ -321,6 +327,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 		})
 	}
 
+	logFunc("log_trace", LogLevelTrace)
 	logFunc("log_debug", LogLevelDebug)
 	logFunc("log_info", LogLevelInfo)
 	logFunc("log_warn", LogLevelWarn)
@@ -557,6 +564,14 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 func httpStatusCode(ctx context.Context, m api.Module) int32 {
 	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
 		return int32(plugin.LastStatusCode)
+	}
+
+	panic("Invalid context, `plugin` key not found")
+}
+
+func getLogLevel(ctx context.Context, m api.Module) int32 {
+	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+		return int32(plugin.logLevel)
 	}
 
 	panic("Invalid context, `plugin` key not found")
