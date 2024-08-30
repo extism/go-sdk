@@ -3,16 +3,16 @@ package main
 import (
 	"fmt"
 
-	"github.com/extism/go-pdk"
+	pdk "github.com/extism/go-pdk"
 )
 
 //export run_test
 func run_test() int32 {
+	pdk.Log(pdk.LogTrace, "this is a trace log")
 	pdk.Log(pdk.LogDebug, "this is a debug log")
 	pdk.Log(pdk.LogInfo, "this is an info log")
 	pdk.Log(pdk.LogWarn, "this is a warning log")
 	pdk.Log(pdk.LogError, "this is an error log")
-	pdk.Log(pdk.LogTrace, "this is a trace log")
 
 	return 0
 }

@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -443,13 +443,16 @@ func TestLog_default(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
+		SetLogLevel(LogLevelWarn) // Only warn and error logs should be printed to the console
 		exit, _, err := plugin.Call("run_test", []byte{})
 
 		if assertCall(t, err, exit) {
 			logs := buf.String()
-
 			assert.Contains(t, logs, "this is a warning log")
 			assert.Contains(t, logs, "this is an error log")
+			assert.NotContains(t, logs, "this is a trace log")
+			assert.NotContains(t, logs, "this is a debug log")
+			assert.NotContains(t, logs, "this is an info log")
 		}
 	}
 }
@@ -465,34 +468,68 @@ func TestLog_custom(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		var actual []LogEntry
+		var actual strings.Builder
+
+		var fmtLogMessage = func(level LogLevel, message string) string {
+			return fmt.Sprintf("%s: %s\n", level.String(), message)
+		}
 
 		plugin.SetLogger(func(level LogLevel, message string) {
-			actual = append(actual, LogEntry{message: message, level: level})
+			actual.WriteString(fmtLogMessage(level, message))
 			switch level {
+			case LogLevelDebug:
+				assert.Equal(t, level.String(), "DEBUG")
 			case LogLevelInfo:
-				assert.Equal(t, fmt.Sprintf("%s", level), "INFO")
+				assert.Equal(t, level.String(), "INFO")
 			case LogLevelWarn:
-				assert.Equal(t, fmt.Sprintf("%s", level), "WARN")
+				assert.Equal(t, level.String(), "WARN")
 			case LogLevelError:
-				assert.Equal(t, fmt.Sprintf("%s", level), "ERROR")
+				assert.Equal(t, level.String(), "ERROR")
 			case LogLevelTrace:
-				assert.Equal(t, fmt.Sprintf("%s", level), "TRACE")
+				assert.Equal(t, level.String(), "TRACE")
 			}
 		})
 
-		plugin.SetLogLevel(LogLevelInfo)
+		SetLogLevel(LogLevelTrace)
 
 		exit, _, err := plugin.Call("run_test", []byte{})
 
 		if assertCall(t, err, exit) {
 			expected := []LogEntry{
+				{message: "this is a trace log", level: LogLevelTrace},
+				{message: "this is a debug log", level: LogLevelDebug},
 				{message: "this is an info log", level: LogLevelInfo},
 				{message: "this is a warning log", level: LogLevelWarn},
 				{message: "this is an error log", level: LogLevelError},
-				{message: "this is a trace log", level: LogLevelTrace}}
+			}
+			actualLogs := actual.String()
+			for _, log := range expected {
+				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
+			}
+		}
 
-			assert.Equal(t, expected, actual)
+		SetLogLevel(LogLevelWarn)
+		actual.Reset()
+
+		exit, _, err = plugin.Call("run_test", []byte{})
+
+		if assertCall(t, err, exit) {
+			expected := []LogEntry{
+				{message: "this is a warning log", level: LogLevelWarn},
+				{message: "this is an error log", level: LogLevelError},
+			}
+			expectedNot := []LogEntry{
+				{message: "this is a trace log", level: LogLevelTrace},
+				{message: "this is a debug log", level: LogLevelDebug},
+				{message: "this is an info log", level: LogLevelInfo},
+			}
+			actualLogs := actual.String()
+			for _, log := range expected {
+				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
+			}
+			for _, log := range expectedNot {
+				assert.NotContains(t, actualLogs, fmtLogMessage(log.level, log.message))
+			}
 		}
 	}
 }
@@ -699,7 +736,7 @@ func TestHelloHaskell(t *testing.T) {
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
-		plugin.SetLogLevel(LogLevelTrace)
+		SetLogLevel(LogLevelTrace)
 		plugin.Config["greeting"] = "Howdy"
 
 		exit, output, err := plugin.Call("testing", []byte("John"))
@@ -1066,16 +1103,6 @@ func BenchmarkReplace(b *testing.B) {
 			}
 		})
 	}
-}
-
-func generateRandomString(length int, seed int64) string {
-	rand.Seed(seed)
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	result := make([]byte, length)
-	for i := range result {
-		result[i] = charset[rand.Intn(len(charset))]
-	}
-	return string(result)
 }
 
 func wasiPluginConfig() PluginConfig {
