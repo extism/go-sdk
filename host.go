@@ -132,7 +132,7 @@ func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64,
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
-		return 0, fmt.Errorf("Expected 1 return, go %v.", len(out))
+		return 0, fmt.Errorf("expected 1 return, go %v", len(out))
 	}
 
 	return uint64(out[0]), nil
@@ -164,7 +164,7 @@ func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uin
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
-		return 0, fmt.Errorf("Expected 1 return, go %v.", len(out))
+		return 0, fmt.Errorf("expected 1 return, go %v", len(out))
 	}
 
 	return uint64(out[0]), nil
@@ -184,7 +184,7 @@ func (p *CurrentPlugin) WriteBytes(b []byte) (uint64, error) {
 
 	ok := p.Memory().Write(uint32(ptr), b)
 	if !ok {
-		return 0, fmt.Errorf("Failed to write to memory.")
+		return 0, fmt.Errorf("failed to write to memory")
 	}
 
 	return ptr, nil
@@ -209,7 +209,7 @@ func (p *CurrentPlugin) ReadBytes(offset uint64) ([]byte, error) {
 
 	buffer, ok := p.Memory().Read(uint32(offset), uint32(length))
 	if !ok {
-		return []byte{}, fmt.Errorf("Invalid memory block")
+		return []byte{}, fmt.Errorf("invalid memory block")
 	}
 
 	cpy := make([]byte, len(buffer))
@@ -237,7 +237,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		closure := f.stackCallback
 
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
-			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return
 			}
@@ -303,10 +303,15 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("var_set", varSet)
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
+	hostFunc("get_log_level", getLogLevel)
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
-			if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+				if LogLevel(pluginLogLevel.Load()) > level {
+					return
+				}
+
 				message, err := plugin.currentPlugin().ReadString(offset)
 				if err != nil {
 					panic(fmt.Errorf("failed to read log message from memory: %v", err))
@@ -321,6 +326,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 		})
 	}
 
+	logFunc("log_trace", LogLevelTrace)
 	logFunc("log_debug", LogLevelDebug)
 	logFunc("log_info", LogLevelInfo)
 	logFunc("log_warn", LogLevelWarn)
@@ -331,7 +337,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 }
 
 func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -345,7 +351,7 @@ func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -357,12 +363,12 @@ func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value("plugin").(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
 
-	offset, ok := ctx.Value("inputOffset").(uint64)
+	offset, ok := ctx.Value(InputOffsetKey("inputOffset")).(uint64)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -374,12 +380,12 @@ func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
 		if err != nil {
-			panic(fmt.Errorf("Failed to read config name from memory: %v", err))
+			panic(fmt.Errorf("failed to read config name from memory: %v", err))
 		}
 
 		value, ok := plugin.Config[name]
@@ -390,7 +396,7 @@ func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 
 		offset, err = cp.WriteString(value)
 		if err != nil {
-			panic(fmt.Errorf("Failed to write config value to memory: %v", err))
+			panic(fmt.Errorf("failed to write config value to memory: %v", err))
 		}
 
 		return offset
@@ -400,12 +406,12 @@ func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
 		if err != nil {
-			panic(fmt.Errorf("Failed to read var name from memory: %v", err))
+			panic(fmt.Errorf("failed to read var name from memory: %v", err))
 		}
 
 		value, ok := plugin.Var[name]
@@ -416,7 +422,7 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 
 		offset, err = cp.WriteBytes(value)
 		if err != nil {
-			panic(fmt.Errorf("Failed to write var value to memory: %v", err))
+			panic(fmt.Errorf("failed to write var value to memory: %v", err))
 		}
 
 		return offset
@@ -426,7 +432,7 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
-	plugin, ok := ctx.Value("plugin").(*Plugin)
+	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context, `plugin` key not found")
 	}
@@ -439,7 +445,7 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 
 	name, err := cp.ReadString(nameOffset)
 	if err != nil {
-		panic(fmt.Errorf("Failed to read var name from memory: %v", err))
+		panic(fmt.Errorf("failed to read var name from memory: %v", err))
 	}
 
 	// Remove if the value offset is 0
@@ -450,7 +456,7 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 
 	value, err := cp.ReadBytes(valueOffset)
 	if err != nil {
-		panic(fmt.Errorf("Failed to read var value from memory: %v", err))
+		panic(fmt.Errorf("failed to read var value from memory: %v", err))
 	}
 
 	// Calculate size including current key/value
@@ -469,19 +475,23 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		requestJson, err := cp.ReadBytes(requestOffset)
+		if err != nil {
+			panic(fmt.Errorf("failed to read http request from memory: %v", err))
+		}
+
 		var request HttpRequest
 		err = json.Unmarshal(requestJson, &request)
 		if err != nil {
-			panic(fmt.Errorf("Invalid HTTP Request: %v", err))
+			panic(fmt.Errorf("invalid http request: %v", err))
 		}
 
 		url, err := url.Parse(request.Url)
 		if err != nil {
-			panic(fmt.Errorf("Invalid Url: %v", err))
+			panic(fmt.Errorf("invalid url: %v", err))
 		}
 
 		// deny all requests by default
@@ -507,7 +517,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 		if bodyOffset != 0 {
 			body, err := cp.ReadBytes(bodyOffset)
 			if err != nil {
-				panic("Failed to read response body from memory")
+				panic("failed to read response body from memory")
 			}
 
 			cp.Free(bodyOffset)
@@ -555,11 +565,18 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 }
 
 func httpStatusCode(ctx context.Context, m api.Module) int32 {
-	if plugin, ok := ctx.Value("plugin").(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		return int32(plugin.LastStatusCode)
 	}
 
 	panic("Invalid context, `plugin` key not found")
+}
+
+func getLogLevel(ctx context.Context, m api.Module) int32 {
+	// if _, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	// 	panic("Invalid context, `plugin` key not found")
+	// }
+	return pluginLogLevel.Load()
 }
 
 // EncodeI32 encodes the input as a ValueTypeI32.
