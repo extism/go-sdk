@@ -309,6 +309,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
 			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 				if LogLevel(pluginLogLevel.Load()) > level {
+					plugin.currentPlugin().Free(offset)
 					return
 				}
 
