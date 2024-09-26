@@ -435,11 +435,6 @@ func TestLog_default(t *testing.T) {
 		log.SetOutput(os.Stderr)
 	}()
 
-	type LogEntry struct {
-		message string
-		level   LogLevel
-	}
-
 	if plugin, ok := plugin(t, manifest); ok {
 		defer plugin.Close()
 
