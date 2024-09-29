@@ -55,7 +55,6 @@ type PluginConfig struct {
 	ModuleConfig   wazero.ModuleConfig
 	RuntimeConfig  wazero.RuntimeConfig
 	EnableWasi     bool
-	LogLevel       LogLevel
 	ObserveAdapter *observe.AdapterBase
 	ObserveOptions *observe.Options
 }
@@ -147,11 +146,16 @@ func (p *Plugin) SetLogger(logger func(LogLevel, string)) {
 }
 
 func (p *Plugin) Log(level LogLevel, message string) {
-	if level < LogLevel(pluginLogLevel.Load()) {
-		return
+	minimumLevel := LogLevel(pluginLogLevel.Load())
+
+	// If the global log level hasn't been set, use LogLevelOff as default
+	if minimumLevel == logLevelUnset {
+		minimumLevel = LogLevelOff
 	}
 
-	p.log(level, message)
+	if level >= minimumLevel {
+		p.log(level, message)
+	}
 }
 
 func (p *Plugin) Logf(level LogLevel, format string, args ...any) {
@@ -351,7 +355,7 @@ var pluginLogLevel = atomic.Int32{}
 
 // SetPluginLogLevel sets the log level for the plugin
 func SetLogLevel(level LogLevel) {
-	pluginLogLevel.Store(int32(level.ExtismCompat()))
+	pluginLogLevel.Store(int32(level))
 }
 
 // NewPlugin creates a new Extism plugin with the given manifest, configuration, and host functions.

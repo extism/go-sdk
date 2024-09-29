@@ -334,7 +334,6 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	logFunc("log_info", LogLevelInfo)
 	logFunc("log_warn", LogLevelWarn)
 	logFunc("log_error", LogLevelError)
-	logFunc("log_trace", LogLevelTrace)
 
 	return builder.Instantiate(ctx)
 }
@@ -586,7 +585,7 @@ func getLogLevel(ctx context.Context, m api.Module) int32 {
 	// if _, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 	// 	panic("Invalid context, `plugin` key not found")
 	// }
-	return pluginLogLevel.Load()
+	return LogLevel(pluginLogLevel.Load()).ExtismCompat()
 }
 
 // EncodeI32 encodes the input as a ValueTypeI32.
