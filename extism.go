@@ -449,11 +449,11 @@ func NewPlugin(
 		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
 	}
 
-	// Try to find the main Module:
-	//  - There is always one main Module
-	//  - If a Wasm value has the Name field set to "main" then use that Module
-	//  - If there is only one Module in the manifest then that is the main Module by default
-	//  - Otherwise the last Module listed is the main Module
+	// Try to find the main module:
+	//  - There is always one main module
+	//  - If a Wasm value has the Name field set to "main" then use that module
+	//  - If there is only one module in the manifest then that is the main module by default
+	//  - Otherwise the last module listed is the main module
 
 	var trace *observe.TraceCtx
 	for i, wasm := range manifest.Wasm {
@@ -480,7 +480,7 @@ func NewPlugin(
 		_, okm := modules[data.Name]
 
 		if data.Name == "extism:host/env" || okh || okm {
-			return nil, fmt.Errorf("Module name collision: '%s'", data.Name)
+			return nil, fmt.Errorf("module name collision: '%s'", data.Name)
 		}
 
 		if data.Hash != "" {

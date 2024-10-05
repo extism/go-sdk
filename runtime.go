@@ -99,7 +99,7 @@ func reactorModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	}
 
 	p.Logf(LogLevelTrace, "WASI runtime detected")
-	p.Logf(LogLevelTrace, "Reactor Module detected")
+	p.Logf(LogLevelTrace, "Reactor module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
@@ -113,7 +113,7 @@ func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	}
 
 	p.Logf(LogLevelTrace, "WASI runtime detected")
-	p.Logf(LogLevelTrace, "Command Module detected")
+	p.Logf(LogLevelTrace, "Command module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }

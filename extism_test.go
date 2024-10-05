@@ -550,7 +550,7 @@ func TestTimeout(t *testing.T) {
 	exit, _, err := plugin.Call("run_test", []byte{})
 
 	assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
-	assert.Equal(t, "Module closed with context deadline exceeded", err.Error())
+	assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 }
 
 func TestCancel(t *testing.T) {
@@ -581,7 +581,7 @@ func TestCancel(t *testing.T) {
 	exit, _, err := plugin.CallWithContext(ctx, "run_test", []byte{})
 
 	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
-	assert.Equal(t, "Module closed with context canceled", err.Error())
+	assert.Equal(t, "module closed with context canceled", err.Error())
 }
 
 func TestVar(t *testing.T) {
@@ -781,7 +781,7 @@ func TestJsonManifest(t *testing.T) {
 		exit, _, err := plugin.Call("run_test", []byte{})
 
 		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
-		assert.Equal(t, "Module closed with context deadline exceeded", err.Error())
+		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
 	}
 }
 
