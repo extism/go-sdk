@@ -24,11 +24,6 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-type module struct {
-	module api.Module
-	wasm   []byte
-}
-
 type PluginCtxKey string
 type InputOffsetKey string
 
@@ -119,8 +114,8 @@ func (l LogLevel) String() string {
 // Plugin is used to call WASM functions
 type Plugin struct {
 	Runtime *Runtime
-	Modules map[string]module
-	Main    module
+	Modules map[string]Module
+	Main    Module
 	Timeout time.Duration
 	Config  map[string]string
 	// NOTE: maybe we can have some nice methods for getting/setting vars
@@ -424,7 +419,7 @@ func NewPlugin(
 		return nil, fmt.Errorf("manifest can't be empty")
 	}
 
-	modules := map[string]module{}
+	modules := map[string]Module{}
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
@@ -454,11 +449,11 @@ func NewPlugin(
 		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
 	}
 
-	// Try to find the main module:
-	//  - There is always one main module
-	//  - If a Wasm value has the Name field set to "main" then use that module
-	//  - If there is only one module in the manifest then that is the main module by default
-	//  - Otherwise the last module listed is the main module
+	// Try to find the main Module:
+	//  - There is always one main Module
+	//  - If a Wasm value has the Name field set to "main" then use that Module
+	//  - If there is only one Module in the manifest then that is the main Module by default
+	//  - Otherwise the last Module listed is the main Module
 
 	var trace *observe.TraceCtx
 	for i, wasm := range manifest.Wasm {
@@ -485,13 +480,13 @@ func NewPlugin(
 		_, okm := modules[data.Name]
 
 		if data.Name == "extism:host/env" || okh || okm {
-			return nil, fmt.Errorf("module name collision: '%s'", data.Name)
+			return nil, fmt.Errorf("Module name collision: '%s'", data.Name)
 		}
 
 		if data.Hash != "" {
 			calculatedHash := calculateHash(data.Data)
 			if data.Hash != calculatedHash {
-				return nil, fmt.Errorf("hash mismatch for module '%s'", data.Name)
+				return nil, fmt.Errorf("hash mismatch for Module '%s'", data.Name)
 			}
 		}
 
@@ -500,7 +495,7 @@ func NewPlugin(
 			return nil, err
 		}
 
-		modules[data.Name] = module{module: m, wasm: data.Data}
+		modules[data.Name] = Module{inner: m}
 	}
 
 	i := 0
@@ -514,7 +509,7 @@ func NewPlugin(
 		varMax = int64(manifest.Memory.MaxVarBytes)
 	}
 	for _, m := range modules {
-		if m.module.Name() == "main" {
+		if m.inner.Name() == "main" {
 			p := &Plugin{
 				Runtime:              &c,
 				Modules:              modules,
@@ -539,7 +534,7 @@ func NewPlugin(
 		i++
 	}
 
-	return nil, errors.New("no main module found")
+	return nil, errors.New("no main Module found")
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
@@ -619,9 +614,9 @@ func (plugin *Plugin) GetErrorWithContext(ctx context.Context) string {
 	return string(mem)
 }
 
-// FunctionExists returns true when the named function is present in the plugin's main module
+// FunctionExists returns true when the named function is present in the plugin's main Module
 func (plugin *Plugin) FunctionExists(name string) bool {
-	return plugin.Main.module.ExportedFunction(name) != nil
+	return plugin.Main.inner.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
@@ -646,7 +641,7 @@ func (plugin *Plugin) CallWithContext(ctx context.Context, name string, data []b
 
 	ctx = context.WithValue(ctx, InputOffsetKey("inputOffset"), intputOffset)
 
-	var f = plugin.Main.module.ExportedFunction(name)
+	var f = plugin.Main.inner.ExportedFunction(name)
 
 	if f == nil {
 		return 1, []byte{}, fmt.Errorf("unknown function: %s", name)

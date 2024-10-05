@@ -25,12 +25,12 @@ type guestRuntime struct {
 func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
 	m := p.Main
 
-	runtime, ok := haskellRuntime(ctx, p, m.module)
+	runtime, ok := haskellRuntime(ctx, p, m.inner)
 	if ok {
 		return runtime
 	}
 
-	runtime, ok = wasiRuntime(ctx, p, m.module)
+	runtime, ok = wasiRuntime(ctx, p, m.inner)
 	if ok {
 		return runtime
 	}
@@ -99,7 +99,7 @@ func reactorModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	}
 
 	p.Logf(LogLevelTrace, "WASI runtime detected")
-	p.Logf(LogLevelTrace, "Reactor module detected")
+	p.Logf(LogLevelTrace, "Reactor Module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
@@ -113,7 +113,7 @@ func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	}
 
 	p.Logf(LogLevelTrace, "WASI runtime detected")
-	p.Logf(LogLevelTrace, "Command module detected")
+	p.Logf(LogLevelTrace, "Command Module detected")
 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
