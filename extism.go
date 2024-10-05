@@ -486,7 +486,7 @@ func NewPlugin(
 		if data.Hash != "" {
 			calculatedHash := calculateHash(data.Data)
 			if data.Hash != calculatedHash {
-				return nil, fmt.Errorf("hash mismatch for Module '%s'", data.Name)
+				return nil, fmt.Errorf("hash mismatch for module '%s'", data.Name)
 			}
 		}
 
@@ -534,7 +534,7 @@ func NewPlugin(
 		i++
 	}
 
-	return nil, errors.New("no main Module found")
+	return nil, errors.New("no main module found")
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
