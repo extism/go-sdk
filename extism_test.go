@@ -453,7 +453,7 @@ func TestHTTPHeaders_allowed(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, "text/html; charset=utf-8", headers["Content-Type"])
+		assert.Equal(t, "text/html; charset=utf-8", headers["content-type"])
 	}
 }
 

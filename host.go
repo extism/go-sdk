@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"unsafe"
 
 	// TODO: is there a better package for this?
@@ -560,7 +561,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 
 		if plugin.LastResponseHeaders != nil {
 			for k, v := range resp.Header {
-				plugin.LastResponseHeaders[k] = v[0]
+				plugin.LastResponseHeaders[strings.ToLower(k)] = v[0]
 			}
 		}
 
