@@ -303,7 +303,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("var_set", varSet)
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
-	hostFunc("http_headers", httpStatusCode)
+	hostFunc("http_headers", httpHeaders)
 	hostFunc("get_log_level", getLogLevel)
 
 	logFunc := func(name string, level LogLevel) {
@@ -597,6 +597,10 @@ func httpStatusCode(ctx context.Context, m api.Module) int32 {
 
 func httpHeaders(ctx context.Context, _ api.Module) uint64 {
 	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+		if plugin.LastResponseHeaders == nil {
+			return 0
+		}
+
 		data, err := json.Marshal(plugin.LastResponseHeaders)
 		if err != nil {
 			panic(err)
