@@ -426,6 +426,62 @@ func TestHTTP_denied(t *testing.T) {
 	}
 }
 
+func TestHTTPHeaders_allowed(t *testing.T) {
+	manifest := manifest("http_headers.wasm")
+	manifest.AllowedHosts = []string{"extism.org"}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+	config.EnableHttpResponseHeaders = true
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	defer plugin.Close()
+
+	req, _ := json.Marshal(map[string]string{
+		"url": "https://extism.org",
+	})
+
+	exit, output, err := plugin.Call("http_get", req)
+
+	if assertCall(t, err, exit) {
+		headers := map[string]string{}
+		err = json.Unmarshal(output, &headers)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, "text/html; charset=utf-8", headers["content-type"])
+	}
+}
+
+func TestHTTPHeaders_denied(t *testing.T) {
+	manifest := manifest("http_headers.wasm")
+	manifest.AllowedHosts = []string{"extism.org"}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	defer plugin.Close()
+
+	req, _ := json.Marshal(map[string]string{
+		"url": "https://extism.org",
+	})
+
+	exit, output, err := plugin.Call("http_get", req)
+
+	if assertCall(t, err, exit) {
+		assert.Equal(t, output, []byte("{}"))
+	}
+}
+
 func TestLog_default(t *testing.T) {
 	manifest := manifest("log.wasm")
 

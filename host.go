@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"unsafe"
 
 	// TODO: is there a better package for this?
@@ -303,6 +304,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	hostFunc("var_set", varSet)
 	hostFunc("http_request", httpRequest)
 	hostFunc("http_status_code", httpStatusCode)
+	hostFunc("http_headers", httpHeaders)
 	hostFunc("get_log_level", getLogLevel)
 
 	logFunc := func(name string, level LogLevel) {
@@ -486,6 +488,13 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
+		if plugin.LastResponseHeaders != nil {
+			for k := range plugin.LastResponseHeaders {
+				delete(plugin.LastResponseHeaders, k)
+			}
+		}
+		plugin.LastStatusCode = 0
+
 		requestJson, err := cp.ReadBytes(requestOffset)
 		if err != nil {
 			panic(fmt.Errorf("failed to read http request from memory: %v", err))
@@ -550,6 +559,12 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 		}
 		defer resp.Body.Close()
 
+		if plugin.LastResponseHeaders != nil {
+			for k, v := range resp.Header {
+				plugin.LastResponseHeaders[strings.ToLower(k)] = v[0]
+			}
+		}
+
 		plugin.LastStatusCode = resp.StatusCode
 
 		limiter := http.MaxBytesReader(nil, resp.Body, int64(plugin.MaxHttpResponseBytes))
@@ -576,6 +591,26 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 func httpStatusCode(ctx context.Context, m api.Module) int32 {
 	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		return int32(plugin.LastStatusCode)
+	}
+
+	panic("Invalid context, `plugin` key not found")
+}
+
+func httpHeaders(ctx context.Context, _ api.Module) uint64 {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+		if plugin.LastResponseHeaders == nil {
+			return 0
+		}
+
+		data, err := json.Marshal(plugin.LastResponseHeaders)
+		if err != nil {
+			panic(err)
+		}
+		mem, err := plugin.currentPlugin().WriteBytes(data)
+		if err != nil {
+			panic(err)
+		}
+		return mem
 	}
 
 	panic("Invalid context, `plugin` key not found")

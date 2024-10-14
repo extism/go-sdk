@@ -47,11 +47,12 @@ type Runtime struct {
 
 // PluginConfig contains configuration options for the Extism plugin.
 type PluginConfig struct {
-	ModuleConfig   wazero.ModuleConfig
-	RuntimeConfig  wazero.RuntimeConfig
-	EnableWasi     bool
-	ObserveAdapter *observe.AdapterBase
-	ObserveOptions *observe.Options
+	ModuleConfig              wazero.ModuleConfig
+	RuntimeConfig             wazero.RuntimeConfig
+	EnableWasi                bool
+	ObserveAdapter            *observe.AdapterBase
+	ObserveOptions            *observe.Options
+	EnableHttpResponseHeaders bool
 }
 
 // HttpRequest represents an HTTP request to be made by the plugin.
@@ -123,6 +124,7 @@ type Plugin struct {
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
 	LastStatusCode       int
+	LastResponseHeaders  map[string]string
 	MaxHttpResponseBytes int64
 	MaxVarBytes          int64
 	log                  func(LogLevel, string)
@@ -508,6 +510,11 @@ func NewPlugin(
 	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
 		varMax = int64(manifest.Memory.MaxVarBytes)
 	}
+
+	var headers map[string]string = nil
+	if config.EnableHttpResponseHeaders {
+		headers = map[string]string{}
+	}
 	for _, m := range modules {
 		if m.inner.Name() == "main" {
 			p := &Plugin{
@@ -519,6 +526,7 @@ func NewPlugin(
 				AllowedHosts:         manifest.AllowedHosts,
 				AllowedPaths:         manifest.AllowedPaths,
 				LastStatusCode:       0,
+				LastResponseHeaders:  headers,
 				Timeout:              time.Duration(manifest.Timeout) * time.Millisecond,
 				MaxHttpResponseBytes: httpMax,
 				MaxVarBytes:          varMax,
