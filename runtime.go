@@ -2,7 +2,6 @@ package extism
 
 import (
 	"context"
-
 	"github.com/tetratelabs/wazero/api"
 )
 
@@ -22,15 +21,13 @@ type guestRuntime struct {
 	initialized bool
 }
 
-func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
-	m := p.Main
-
-	runtime, ok := haskellRuntime(ctx, p, m.inner)
+func detectGuestRuntime(ctx context.Context, p *PluginInstance) guestRuntime {
+	runtime, ok := haskellRuntime(ctx, p, p.module)
 	if ok {
 		return runtime
 	}
 
-	runtime, ok = wasiRuntime(ctx, p, m.inner)
+	runtime, ok = wasiRuntime(ctx, p, p.module)
 	if ok {
 		return runtime
 	}
@@ -42,7 +39,7 @@ func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
 // Check for Haskell runtime initialization functions
 // Initialize Haskell runtime if `hs_init` and `hs_exit` are present,
 // by calling the `hs_init` export
-func haskellRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime, bool) {
+func haskellRuntime(ctx context.Context, p *PluginInstance, m api.Module) (guestRuntime, bool) {
 	initFunc := m.ExportedFunction("hs_init")
 	if initFunc == nil {
 		return guestRuntime{}, false
@@ -76,8 +73,8 @@ func haskellRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime,
 }
 
 // Check for initialization functions defined by the WASI standard
-func wasiRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime, bool) {
-	if !p.Runtime.hasWasi {
+func wasiRuntime(ctx context.Context, p *PluginInstance, m api.Module) (guestRuntime, bool) {
+	if !p.plugin.hasWasi {
 		return guestRuntime{}, false
 	}
 
@@ -92,7 +89,7 @@ func wasiRuntime(ctx context.Context, p *Plugin, m api.Module) (guestRuntime, bo
 }
 
 // Check for `_initialize` this is used by WASI to initialize certain interfaces.
-func reactorModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, bool) {
+func reactorModule(ctx context.Context, m api.Module, p *PluginInstance) (guestRuntime, bool) {
 	init := findFunc(ctx, m, p, "_initialize")
 	if init == nil {
 		return guestRuntime{}, false
@@ -106,7 +103,7 @@ func reactorModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 
 // Check for `__wasm__call_ctors`, this is used by WASI to
 // initialize certain interfaces.
-func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, bool) {
+func commandModule(ctx context.Context, m api.Module, p *PluginInstance) (guestRuntime, bool) {
 	init := findFunc(ctx, m, p, "__wasm_call_ctors")
 	if init == nil {
 		return guestRuntime{}, false
@@ -118,7 +115,7 @@ func commandModule(ctx context.Context, m api.Module, p *Plugin) (guestRuntime, 
 	return guestRuntime{runtimeType: Wasi, init: init}, true
 }
 
-func findFunc(ctx context.Context, m api.Module, p *Plugin, name string) func(context.Context) error {
+func findFunc(ctx context.Context, m api.Module, p *PluginInstance, name string) func(context.Context) error {
 	initFunc := m.ExportedFunction(name)
 	if initFunc == nil {
 		return nil
