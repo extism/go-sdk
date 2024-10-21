@@ -5,19 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
-	"strings"
-	"testing"
-	"time"
-
-	observe "github.com/dylibso/observe-sdk/go"
-	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
-	"github.com/tetratelabs/wazero/sys"
+	"log"
+	"os"
+	"testing"
 )
 
 func TestWasmUrl(t *testing.T) {
@@ -36,7 +28,7 @@ func TestWasmUrl(t *testing.T) {
 	}
 
 	_, ok := plugin(t, manifest)
-	assert.True(t, ok, "Plugin must be succussfuly created")
+	assert.True(t, ok, "PluginInstance must be succussfuly created")
 }
 
 func TestHashMismatch(t *testing.T) {
@@ -54,11 +46,13 @@ func TestHashMismatch(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	config := wasiPluginConfig()
+	//config := wasiPluginConfig()
 
-	_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+	_, err := NewPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	})
 
-	assert.NotNil(t, err, "Plugin must fail")
+	assert.NotNil(t, err, "PluginInstance must fail")
 }
 
 func TestFunctionExsits(t *testing.T) {
@@ -117,7 +111,10 @@ func TestClosePlugin(t *testing.T) {
 		exit, _, err := plugin.Call("run_test", []byte{})
 		assertCall(t, err, exit)
 
-		plugin.Close()
+		err = plugin.Close()
+		if err != nil {
+			t.Errorf("Close must not return an error: %v", err)
+		}
 
 		_, _, err = plugin.Call("run_test", []byte{})
 		assert.NotNil(t, err, "Call must fail after plugin was closed")
@@ -300,11 +297,6 @@ func TestHost_memory(t *testing.T) {
 func TestHost_multiple(t *testing.T) {
 	manifest := manifest("host_multiple.wasm")
 
-	config := PluginConfig{
-		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:   true,
-	}
-
 	green_message := NewHostFunctionWithStack(
 		"hostGreenMessage",
 		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
@@ -361,8 +353,17 @@ func TestHost_multiple(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pluginInst, err := NewPlugin(ctx, manifest, config, hostFunctions)
+	p, err := NewPlugin(ctx, manifest, PluginConfig{
+		EnableWasi:    true,
+		HostFunctions: hostFunctions,
+	})
+	if err != nil {
+		panic(err)
+	}
 
+	pluginInst, err := p.Instance(ctx, PluginInstanceConfig{
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -508,572 +509,572 @@ func TestLog_default(t *testing.T) {
 	}
 }
 
-func TestLog_custom(t *testing.T) {
-	manifest := manifest("log.wasm")
-
-	type LogEntry struct {
-		message string
-		level   LogLevel
-	}
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		var actual strings.Builder
-
-		var fmtLogMessage = func(level LogLevel, message string) string {
-			return fmt.Sprintf("%s: %s\n", level.String(), message)
-		}
-
-		plugin.SetLogger(func(level LogLevel, message string) {
-			actual.WriteString(fmtLogMessage(level, message))
-			switch level {
-			case LogLevelDebug:
-				assert.Equal(t, level.String(), "DEBUG")
-			case LogLevelInfo:
-				assert.Equal(t, level.String(), "INFO")
-			case LogLevelWarn:
-				assert.Equal(t, level.String(), "WARN")
-			case LogLevelError:
-				assert.Equal(t, level.String(), "ERROR")
-			case LogLevelTrace:
-				assert.Equal(t, level.String(), "TRACE")
-			}
-		})
-
-		SetLogLevel(LogLevelTrace)
-
-		exit, _, err := plugin.Call("run_test", []byte{})
-
-		if assertCall(t, err, exit) {
-			expected := []LogEntry{
-				{message: "this is a trace log", level: LogLevelTrace},
-				{message: "this is a debug log", level: LogLevelDebug},
-				{message: "this is an info log", level: LogLevelInfo},
-				{message: "this is a warning log", level: LogLevelWarn},
-				{message: "this is an error log", level: LogLevelError},
-			}
-			actualLogs := actual.String()
-			for _, log := range expected {
-				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
-			}
-		}
-
-		SetLogLevel(LogLevelWarn)
-		actual.Reset()
-
-		exit, _, err = plugin.Call("run_test", []byte{})
-
-		if assertCall(t, err, exit) {
-			expected := []LogEntry{
-				{message: "this is a warning log", level: LogLevelWarn},
-				{message: "this is an error log", level: LogLevelError},
-			}
-			expectedNot := []LogEntry{
-				{message: "this is a trace log", level: LogLevelTrace},
-				{message: "this is a debug log", level: LogLevelDebug},
-				{message: "this is an info log", level: LogLevelInfo},
-			}
-			actualLogs := actual.String()
-			for _, log := range expected {
-				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
-			}
-			for _, log := range expectedNot {
-				assert.NotContains(t, actualLogs, fmtLogMessage(log.level, log.message))
-			}
-		}
-	}
-}
-
-func TestTimeout(t *testing.T) {
-	manifest := manifest("sleep.wasm")
-	manifest.Timeout = 100            // 100ms
-	manifest.Config["duration"] = "3" // sleep for 3 seconds
-
-	config := PluginConfig{
-		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:   true,
-	}
-
-	plugin, err := NewPlugin(context.Background(), manifest, config, []HostFunction{})
-
-	if err != nil {
-		t.Errorf("Could not create plugin: %v", err)
-	}
-
-	defer plugin.Close()
-
-	exit, _, err := plugin.Call("run_test", []byte{})
-
-	assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
-	assert.Equal(t, "module closed with context deadline exceeded", err.Error())
-}
-
-func TestCancel(t *testing.T) {
-	manifest := manifest("sleep.wasm")
-	manifest.Config["duration"] = "3" // sleep for 3 seconds
-
-	ctx := context.Background()
-	config := PluginConfig{
-		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:    true,
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
-	}
-
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-
-	if err != nil {
-		t.Errorf("Could not create plugin: %v", err)
-	}
-
-	defer plugin.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
-
-	exit, _, err := plugin.CallWithContext(ctx, "run_test", []byte{})
-
-	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
-	assert.Equal(t, "module closed with context canceled", err.Error())
-}
-
-func TestVar(t *testing.T) {
-	manifest := manifest("var.wasm")
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		plugin.Var["a"] = uintToLEBytes(10)
-
-		exit, _, err := plugin.Call("run_test", []byte{})
-
-		if assertCall(t, err, exit) {
-			actual := uintFromLEBytes(plugin.Var["a"])
-			expected := uint(20)
-
-			assert.Equal(t, expected, actual)
-		}
-
-		exit, _, err = plugin.Call("run_test", []byte{})
-
-		if assertCall(t, err, exit) {
-			actual := uintFromLEBytes(plugin.Var["a"])
-			expected := uint(40)
-
-			assert.Equal(t, expected, actual)
-		}
-	}
-
-}
-
-func TestNoVars(t *testing.T) {
-	manifest := manifest("var.wasm")
-	manifest.Memory = &ManifestMemory{MaxVarBytes: 0}
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		plugin.Var["a"] = uintToLEBytes(10)
-
-		_, _, err := plugin.Call("run_test", []byte{})
-
-		if err == nil {
-			t.Fail()
-		}
-	}
-
-}
-
-func TestFS(t *testing.T) {
-	manifest := manifest("fs.wasm")
-	manifest.AllowedPaths = map[string]string{
-		"testdata": "/mnt",
-	}
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		exit, output, err := plugin.Call("run_test", []byte{})
-
-		if assertCall(t, err, exit) {
-			actual := string(output)
-			expected := "hello world!"
-
-			assert.Equal(t, expected, actual)
-		}
-	}
-}
-
-func TestReadOnlyMount(t *testing.T) {
-	manifest := manifest("read_write.wasm")
-	manifest.AllowedPaths = map[string]string{
-		"ro:testdata": "/mnt",
-	}
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-		plugin.Config["path"] = "/mnt/test.txt"
-
-		exit, output, err := plugin.Call("try_read", []byte{})
-
-		if assertCall(t, err, exit) {
-			actual := string(output)
-			expected := "hello world!"
-
-			assert.Equal(t, expected, actual)
-		}
-
-		_, _, err = plugin.Call("try_write", []byte("hello hello!"))
-
-		assert.NotNil(t, err, "Write must fail")
-		assert.Contains(t, err.Error(), "Failed to write file")
-	}
-}
-
-func TestCountVowels(t *testing.T) {
-	manifest := manifest("count_vowels.wasm")
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		exit, output, err := plugin.Call("count_vowels", []byte("hello world"))
-
-		if assertCall(t, err, exit) {
-			expected := 3 // 3 vowels
-
-			var actual map[string]int
-			json.Unmarshal(output, &actual)
-
-			assert.Equal(t, expected, actual["count"])
-		}
-	}
-}
-
-func TestMultipleCallsOutput(t *testing.T) {
-	manifest := manifest("count_vowels.wasm")
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		exit, output1, err := plugin.Call("count_vowels", []byte("aaa"))
-
-		if !assertCall(t, err, exit) {
-			return
-		}
-
-		exit, output2, err := plugin.Call("count_vowels", []byte("bbba"))
-
-		if !assertCall(t, err, exit) {
-			return
-		}
-
-		assert.Equal(t, `{"count":3,"total":3,"vowels":"aeiouAEIOU"}`, string(output1))
-		assert.Equal(t, `{"count":1,"total":4,"vowels":"aeiouAEIOU"}`, string(output2))
-	}
-}
-
-func TestHelloHaskell(t *testing.T) {
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer func() {
-		log.SetOutput(os.Stderr)
-	}()
-
-	manifest := manifest("hello_haskell.wasm")
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		SetLogLevel(LogLevelTrace)
-		plugin.Config["greeting"] = "Howdy"
-
-		exit, output, err := plugin.Call("testing", []byte("John"))
-
-		if assertCall(t, err, exit) {
-			actual := string(output)
-			expected := "Howdy, John"
-
-			assert.Equal(t, expected, actual)
-
-			logs := buf.String()
-
-			assert.Contains(t, logs, "Initialized Haskell language runtime.")
-		}
-	}
-}
-
-func TestJsonManifest(t *testing.T) {
-	m := `
-	{
-		"wasm": [
-		  {
-			"path": "wasm/sleep.wasm"
-		  }
-		],
-		"memory": {
-		  "max_pages": 100
-		},
-		"config": {
-		  "key1": "value1",
-		  "key2": "value2",
-		  "duration": "3"
-		},
-		"timeout_ms": 100
-	}
-	`
-
-	manifest := Manifest{}
-	err := manifest.UnmarshalJSON([]byte(m))
-	if err != nil {
-		t.Error(err)
-	}
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		exit, _, err := plugin.Call("run_test", []byte{})
-
-		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
-		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
-	}
-}
-
-func TestInputOffset(t *testing.T) {
-	manifest := manifest("input_offset.wasm")
-
-	if plugin, ok := plugin(t, manifest); ok {
-		defer plugin.Close()
-
-		input_data := []byte("hello world")
-		exit, output, err := plugin.Call("input_offset_length", input_data)
-
-		if assertCall(t, err, exit) {
-			assert.Equal(t, len(input_data), int(output[0]))
-		}
-	}
-}
-
-func TestObserve(t *testing.T) {
-	ctx := context.Background()
-
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-
-	adapter := stdout.NewStdoutAdapter()
-	adapter.Start(ctx)
-
-	manifest := manifest("nested.c.instr.wasm")
-
-	config := PluginConfig{
-		ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:     true,
-		ObserveAdapter: adapter.AdapterBase,
-		ObserveOptions: &observe.Options{
-			SpanFilter:        &observe.SpanFilter{MinDuration: 1 * time.Nanosecond},
-			ChannelBufferSize: 1024,
-		},
-	}
-
-	// Plugin 1
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		panic(err)
-	}
-
-	meta := map[string]string{
-		"http.url":         "https://example.com/my-endpoint",
-		"http.status_code": "200",
-		"http.client_ip":   "192.168.1.0",
-	}
-
-	plugin.TraceCtx.Metadata(meta)
-
-	_, _, _ = plugin.Call("_start", []byte("hello world"))
-	plugin.Close()
-
-	// HACK: make sure we give enough time for the events to get flushed
-	time.Sleep(100 * time.Millisecond)
-
-	actual := buf.String()
-	assert.Contains(t, actual, "  Call to _start took")
-	assert.Contains(t, actual, "      Call to main took")
-	assert.Contains(t, actual, "        Call to one took")
-	assert.Contains(t, actual, "          Call to two took")
-	assert.Contains(t, actual, "            Call to three took")
-	assert.Contains(t, actual, "              Call to printf took")
-
-	// Reset underlying buffer
-	buf.Reset()
-
-	// Plugin 2
-	plugin2, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		panic(err)
-	}
-
-	_, _, _ = plugin2.Call("_start", []byte("hello world"))
-	plugin2.Close()
-
-	// HACK: make sure we give enough time for the events to get flushed
-	time.Sleep(100 * time.Millisecond)
-
-	actual2 := buf.String()
-	assert.Contains(t, actual2, "  Call to _start took")
-	assert.Contains(t, actual2, "      Call to main took")
-	assert.Contains(t, actual2, "        Call to one took")
-	assert.Contains(t, actual2, "          Call to two took")
-	assert.Contains(t, actual2, "            Call to three took")
-	assert.Contains(t, actual2, "              Call to printf took")
-}
-
-// make sure cancelling the context given to NewPlugin doesn't affect plugin calls
-func TestContextCancel(t *testing.T) {
-	manifest := manifest("sleep.wasm")
-	manifest.Config["duration"] = "0" // sleep for 0 seconds
-
-	ctx, cancel := context.WithCancel(context.Background())
-	config := PluginConfig{
-		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:    true,
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
-	}
-
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-
-	if err != nil {
-		t.Errorf("Could not create plugin: %v", err)
-	}
-
-	defer plugin.Close()
-	cancel() // cancel the parent context
-
-	exit, out, err := plugin.CallWithContext(context.Background(), "run_test", []byte{})
-
-	if assertCall(t, err, exit) {
-		assert.Equal(t, "slept for 0 seconds", string(out))
-	}
-}
-
-// make sure we can still turn on experimental wazero features
-func TestEnableExperimentalFeature(t *testing.T) {
-	var buf bytes.Buffer
-
-	// Set context to one that has an experimental listener
-	ctx := experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf, logging.LogScopeAll))
-
-	manifest := manifest("sleep.wasm")
-	manifest.Config["duration"] = "0" // sleep for 0 seconds
-
-	config := PluginConfig{
-		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:    true,
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
-	}
-
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-
-	if err != nil {
-		t.Errorf("Could not create plugin: %v", err)
-	}
-
-	defer plugin.Close()
-
-	var buf2 bytes.Buffer
-	ctx = experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf2, logging.LogScopeAll))
-	exit, out, err := plugin.CallWithContext(ctx, "run_test", []byte{})
-
-	if assertCall(t, err, exit) {
-		assert.Equal(t, "slept for 0 seconds", string(out))
-
-		assert.NotEmpty(t, buf.String())
-		assert.Empty(t, buf2.String())
-	}
-}
-
-func BenchmarkInitialize(b *testing.B) {
-	ctx := context.Background()
-	cache := wazero.NewCompilationCache()
-	defer cache.Close(ctx)
-
-	b.ResetTimer()
-	b.Run("noop", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
-
-			config := PluginConfig{
-				EnableWasi:    true,
-				ModuleConfig:  wazero.NewModuleConfig(),
-				RuntimeConfig: wazero.NewRuntimeConfig(),
-			}
-
-			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-			if err != nil {
-				panic(err)
-			}
-		}
-	})
-}
-
-func BenchmarkInitializeWithCache(b *testing.B) {
-	ctx := context.Background()
-	cache := wazero.NewCompilationCache()
-	defer cache.Close(ctx)
-
-	b.ResetTimer()
-	b.Run("noop", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
-
-			config := PluginConfig{
-				EnableWasi:    true,
-				ModuleConfig:  wazero.NewModuleConfig(),
-				RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
-			}
-
-			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-			if err != nil {
-				panic(err)
-			}
-		}
-	})
-}
-
-func BenchmarkNoop(b *testing.B) {
-	ctx := context.Background()
-	cache := wazero.NewCompilationCache()
-	defer cache.Close(ctx)
-
-	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
-
-	config := PluginConfig{
-		EnableWasi:    true,
-		ModuleConfig:  wazero.NewModuleConfig(),
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
-	}
-
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		panic(err)
-	}
-
-	b.ResetTimer()
-
-	b.Run("noop", func(b *testing.B) {
-		b.ReportAllocs()
-
-		for i := 0; i < b.N; i++ {
-			_, _, err := plugin.Call("run_test", []byte{})
-			if err != nil {
-				panic(err)
-			}
-		}
-	})
-}
+//func TestLog_custom(t *testing.T) {
+//	manifest := manifest("log.wasm")
+//
+//	type LogEntry struct {
+//		message string
+//		level   LogLevel
+//	}
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		var actual strings.Builder
+//
+//		var fmtLogMessage = func(level LogLevel, message string) string {
+//			return fmt.Sprintf("%s: %s\n", level.String(), message)
+//		}
+//
+//		plugin.SetLogger(func(level LogLevel, message string) {
+//			actual.WriteString(fmtLogMessage(level, message))
+//			switch level {
+//			case LogLevelDebug:
+//				assert.Equal(t, level.String(), "DEBUG")
+//			case LogLevelInfo:
+//				assert.Equal(t, level.String(), "INFO")
+//			case LogLevelWarn:
+//				assert.Equal(t, level.String(), "WARN")
+//			case LogLevelError:
+//				assert.Equal(t, level.String(), "ERROR")
+//			case LogLevelTrace:
+//				assert.Equal(t, level.String(), "TRACE")
+//			}
+//		})
+//
+//		SetLogLevel(LogLevelTrace)
+//
+//		exit, _, err := plugin.Call("run_test", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			expected := []LogEntry{
+//				{message: "this is a trace log", level: LogLevelTrace},
+//				{message: "this is a debug log", level: LogLevelDebug},
+//				{message: "this is an info log", level: LogLevelInfo},
+//				{message: "this is a warning log", level: LogLevelWarn},
+//				{message: "this is an error log", level: LogLevelError},
+//			}
+//			actualLogs := actual.String()
+//			for _, log := range expected {
+//				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
+//			}
+//		}
+//
+//		SetLogLevel(LogLevelWarn)
+//		actual.Reset()
+//
+//		exit, _, err = plugin.Call("run_test", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			expected := []LogEntry{
+//				{message: "this is a warning log", level: LogLevelWarn},
+//				{message: "this is an error log", level: LogLevelError},
+//			}
+//			expectedNot := []LogEntry{
+//				{message: "this is a trace log", level: LogLevelTrace},
+//				{message: "this is a debug log", level: LogLevelDebug},
+//				{message: "this is an info log", level: LogLevelInfo},
+//			}
+//			actualLogs := actual.String()
+//			for _, log := range expected {
+//				assert.Contains(t, actualLogs, fmtLogMessage(log.level, log.message))
+//			}
+//			for _, log := range expectedNot {
+//				assert.NotContains(t, actualLogs, fmtLogMessage(log.level, log.message))
+//			}
+//		}
+//	}
+//}
+//
+//func TestTimeout(t *testing.T) {
+//	manifest := manifest("sleep.wasm")
+//	manifest.Timeout = 100            // 100ms
+//	manifest.Config["duration"] = "3" // sleep for 3 seconds
+//
+//	config := PluginInstanceConfig{
+//		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+//		EnableWasi:   true,
+//	}
+//
+//	plugin, err := NewPlugin(context.Background(), manifest, config, []HostFunction{})
+//
+//	if err != nil {
+//		t.Errorf("Could not create plugin: %v", err)
+//	}
+//
+//	defer plugin.Close()
+//
+//	exit, _, err := plugin.Call("run_test", []byte{})
+//
+//	assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
+//	assert.Equal(t, "module closed with context deadline exceeded", err.Error())
+//}
+//
+//func TestCancel(t *testing.T) {
+//	manifest := manifest("sleep.wasm")
+//	manifest.Config["duration"] = "3" // sleep for 3 seconds
+//
+//	ctx := context.Background()
+//	config := PluginInstanceConfig{
+//		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+//		EnableWasi:    true,
+//		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+//	}
+//
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//
+//	if err != nil {
+//		t.Errorf("Could not create plugin: %v", err)
+//	}
+//
+//	defer plugin.Close()
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	go func() {
+//		time.Sleep(100 * time.Millisecond)
+//		cancel()
+//	}()
+//
+//	exit, _, err := plugin.CallWithContext(ctx, "run_test", []byte{})
+//
+//	assert.Equal(t, sys.ExitCodeContextCanceled, exit, "Exit code must be `sys.ExitCodeContextCanceled`")
+//	assert.Equal(t, "module closed with context canceled", err.Error())
+//}
+//
+//func TestVar(t *testing.T) {
+//	manifest := manifest("var.wasm")
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		plugin.Var["a"] = uintToLEBytes(10)
+//
+//		exit, _, err := plugin.Call("run_test", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			actual := uintFromLEBytes(plugin.Var["a"])
+//			expected := uint(20)
+//
+//			assert.Equal(t, expected, actual)
+//		}
+//
+//		exit, _, err = plugin.Call("run_test", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			actual := uintFromLEBytes(plugin.Var["a"])
+//			expected := uint(40)
+//
+//			assert.Equal(t, expected, actual)
+//		}
+//	}
+//
+//}
+//
+//func TestNoVars(t *testing.T) {
+//	manifest := manifest("var.wasm")
+//	manifest.Memory = &ManifestMemory{MaxVarBytes: 0}
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		plugin.Var["a"] = uintToLEBytes(10)
+//
+//		_, _, err := plugin.Call("run_test", []byte{})
+//
+//		if err == nil {
+//			t.Fail()
+//		}
+//	}
+//
+//}
+//
+//func TestFS(t *testing.T) {
+//	manifest := manifest("fs.wasm")
+//	manifest.AllowedPaths = map[string]string{
+//		"testdata": "/mnt",
+//	}
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		exit, output, err := plugin.Call("run_test", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			actual := string(output)
+//			expected := "hello world!"
+//
+//			assert.Equal(t, expected, actual)
+//		}
+//	}
+//}
+//
+//func TestReadOnlyMount(t *testing.T) {
+//	manifest := manifest("read_write.wasm")
+//	manifest.AllowedPaths = map[string]string{
+//		"ro:testdata": "/mnt",
+//	}
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//		plugin.Config["path"] = "/mnt/test.txt"
+//
+//		exit, output, err := plugin.Call("try_read", []byte{})
+//
+//		if assertCall(t, err, exit) {
+//			actual := string(output)
+//			expected := "hello world!"
+//
+//			assert.Equal(t, expected, actual)
+//		}
+//
+//		_, _, err = plugin.Call("try_write", []byte("hello hello!"))
+//
+//		assert.NotNil(t, err, "Write must fail")
+//		assert.Contains(t, err.Error(), "Failed to write file")
+//	}
+//}
+//
+//func TestCountVowels(t *testing.T) {
+//	manifest := manifest("count_vowels.wasm")
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		exit, output, err := plugin.Call("count_vowels", []byte("hello world"))
+//
+//		if assertCall(t, err, exit) {
+//			expected := 3 // 3 vowels
+//
+//			var actual map[string]int
+//			json.Unmarshal(output, &actual)
+//
+//			assert.Equal(t, expected, actual["count"])
+//		}
+//	}
+//}
+//
+//func TestMultipleCallsOutput(t *testing.T) {
+//	manifest := manifest("count_vowels.wasm")
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		exit, output1, err := plugin.Call("count_vowels", []byte("aaa"))
+//
+//		if !assertCall(t, err, exit) {
+//			return
+//		}
+//
+//		exit, output2, err := plugin.Call("count_vowels", []byte("bbba"))
+//
+//		if !assertCall(t, err, exit) {
+//			return
+//		}
+//
+//		assert.Equal(t, `{"count":3,"total":3,"vowels":"aeiouAEIOU"}`, string(output1))
+//		assert.Equal(t, `{"count":1,"total":4,"vowels":"aeiouAEIOU"}`, string(output2))
+//	}
+//}
+//
+//func TestHelloHaskell(t *testing.T) {
+//	var buf bytes.Buffer
+//	log.SetOutput(&buf)
+//	defer func() {
+//		log.SetOutput(os.Stderr)
+//	}()
+//
+//	manifest := manifest("hello_haskell.wasm")
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		SetLogLevel(LogLevelTrace)
+//		plugin.Config["greeting"] = "Howdy"
+//
+//		exit, output, err := plugin.Call("testing", []byte("John"))
+//
+//		if assertCall(t, err, exit) {
+//			actual := string(output)
+//			expected := "Howdy, John"
+//
+//			assert.Equal(t, expected, actual)
+//
+//			logs := buf.String()
+//
+//			assert.Contains(t, logs, "Initialized Haskell language runtime.")
+//		}
+//	}
+//}
+//
+//func TestJsonManifest(t *testing.T) {
+//	m := `
+//	{
+//		"wasm": [
+//		  {
+//			"path": "wasm/sleep.wasm"
+//		  }
+//		],
+//		"memory": {
+//		  "max_pages": 100
+//		},
+//		"config": {
+//		  "key1": "value1",
+//		  "key2": "value2",
+//		  "duration": "3"
+//		},
+//		"timeout_ms": 100
+//	}
+//	`
+//
+//	manifest := Manifest{}
+//	err := manifest.UnmarshalJSON([]byte(m))
+//	if err != nil {
+//		t.Error(err)
+//	}
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		exit, _, err := plugin.Call("run_test", []byte{})
+//
+//		assert.Equal(t, sys.ExitCodeDeadlineExceeded, exit, "Exit code must be `sys.ExitCodeDeadlineExceeded`")
+//		assert.Equal(t, "module closed with context deadline exceeded", err.Error())
+//	}
+//}
+//
+//func TestInputOffset(t *testing.T) {
+//	manifest := manifest("input_offset.wasm")
+//
+//	if plugin, ok := plugin(t, manifest); ok {
+//		defer plugin.Close()
+//
+//		input_data := []byte("hello world")
+//		exit, output, err := plugin.Call("input_offset_length", input_data)
+//
+//		if assertCall(t, err, exit) {
+//			assert.Equal(t, len(input_data), int(output[0]))
+//		}
+//	}
+//}
+//
+//func TestObserve(t *testing.T) {
+//	ctx := context.Background()
+//
+//	var buf bytes.Buffer
+//	log.SetOutput(&buf)
+//
+//	adapter := stdout.NewStdoutAdapter()
+//	adapter.Start(ctx)
+//
+//	manifest := manifest("nested.c.instr.wasm")
+//
+//	config := PluginInstanceConfig{
+//		ModuleConfig:   wazero.NewModuleConfig().WithSysWalltime(),
+//		EnableWasi:     true,
+//		ObserveAdapter: adapter.AdapterBase,
+//		ObserveOptions: &observe.Options{
+//			SpanFilter:        &observe.SpanFilter{MinDuration: 1 * time.Nanosecond},
+//			ChannelBufferSize: 1024,
+//		},
+//	}
+//
+//	// PluginInstance 1
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	meta := map[string]string{
+//		"http.url":         "https://example.com/my-endpoint",
+//		"http.status_code": "200",
+//		"http.client_ip":   "192.168.1.0",
+//	}
+//
+//	plugin.TraceCtx.Metadata(meta)
+//
+//	_, _, _ = plugin.Call("_start", []byte("hello world"))
+//	plugin.Close()
+//
+//	// HACK: make sure we give enough time for the events to get flushed
+//	time.Sleep(100 * time.Millisecond)
+//
+//	actual := buf.String()
+//	assert.Contains(t, actual, "  Call to _start took")
+//	assert.Contains(t, actual, "      Call to main took")
+//	assert.Contains(t, actual, "        Call to one took")
+//	assert.Contains(t, actual, "          Call to two took")
+//	assert.Contains(t, actual, "            Call to three took")
+//	assert.Contains(t, actual, "              Call to printf took")
+//
+//	// Reset underlying buffer
+//	buf.Reset()
+//
+//	// PluginInstance 2
+//	plugin2, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	_, _, _ = plugin2.Call("_start", []byte("hello world"))
+//	plugin2.Close()
+//
+//	// HACK: make sure we give enough time for the events to get flushed
+//	time.Sleep(100 * time.Millisecond)
+//
+//	actual2 := buf.String()
+//	assert.Contains(t, actual2, "  Call to _start took")
+//	assert.Contains(t, actual2, "      Call to main took")
+//	assert.Contains(t, actual2, "        Call to one took")
+//	assert.Contains(t, actual2, "          Call to two took")
+//	assert.Contains(t, actual2, "            Call to three took")
+//	assert.Contains(t, actual2, "              Call to printf took")
+//}
+//
+//// make sure cancelling the context given to NewPlugin doesn't affect plugin calls
+//func TestContextCancel(t *testing.T) {
+//	manifest := manifest("sleep.wasm")
+//	manifest.Config["duration"] = "0" // sleep for 0 seconds
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	config := PluginInstanceConfig{
+//		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+//		EnableWasi:    true,
+//		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+//	}
+//
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//
+//	if err != nil {
+//		t.Errorf("Could not create plugin: %v", err)
+//	}
+//
+//	defer plugin.Close()
+//	cancel() // cancel the parent context
+//
+//	exit, out, err := plugin.CallWithContext(context.Background(), "run_test", []byte{})
+//
+//	if assertCall(t, err, exit) {
+//		assert.Equal(t, "slept for 0 seconds", string(out))
+//	}
+//}
+//
+//// make sure we can still turn on experimental wazero features
+//func TestEnableExperimentalFeature(t *testing.T) {
+//	var buf bytes.Buffer
+//
+//	// Set context to one that has an experimental listener
+//	ctx := experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf, logging.LogScopeAll))
+//
+//	manifest := manifest("sleep.wasm")
+//	manifest.Config["duration"] = "0" // sleep for 0 seconds
+//
+//	config := PluginInstanceConfig{
+//		ModuleConfig:  wazero.NewModuleConfig().WithSysWalltime(),
+//		EnableWasi:    true,
+//		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+//	}
+//
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//
+//	if err != nil {
+//		t.Errorf("Could not create plugin: %v", err)
+//	}
+//
+//	defer plugin.Close()
+//
+//	var buf2 bytes.Buffer
+//	ctx = experimental.WithFunctionListenerFactory(context.Background(), logging.NewHostLoggingListenerFactory(&buf2, logging.LogScopeAll))
+//	exit, out, err := plugin.CallWithContext(ctx, "run_test", []byte{})
+//
+//	if assertCall(t, err, exit) {
+//		assert.Equal(t, "slept for 0 seconds", string(out))
+//
+//		assert.NotEmpty(t, buf.String())
+//		assert.Empty(t, buf2.String())
+//	}
+//}
+//
+//func BenchmarkInitialize(b *testing.B) {
+//	ctx := context.Background()
+//	cache := wazero.NewCompilationCache()
+//	defer cache.Close(ctx)
+//
+//	b.ResetTimer()
+//	b.Run("noop", func(b *testing.B) {
+//		b.ReportAllocs()
+//		for i := 0; i < b.N; i++ {
+//			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+//
+//			config := PluginInstanceConfig{
+//				EnableWasi:    true,
+//				ModuleConfig:  wazero.NewModuleConfig(),
+//				RuntimeConfig: wazero.NewRuntimeConfig(),
+//			}
+//
+//			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//			if err != nil {
+//				panic(err)
+//			}
+//		}
+//	})
+//}
+//
+//func BenchmarkInitializeWithCache(b *testing.B) {
+//	ctx := context.Background()
+//	cache := wazero.NewCompilationCache()
+//	defer cache.Close(ctx)
+//
+//	b.ResetTimer()
+//	b.Run("noop", func(b *testing.B) {
+//		b.ReportAllocs()
+//		for i := 0; i < b.N; i++ {
+//			manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+//
+//			config := PluginInstanceConfig{
+//				EnableWasi:    true,
+//				ModuleConfig:  wazero.NewModuleConfig(),
+//				RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+//			}
+//
+//			_, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//			if err != nil {
+//				panic(err)
+//			}
+//		}
+//	})
+//}
+//
+//func BenchmarkNoop(b *testing.B) {
+//	ctx := context.Background()
+//	cache := wazero.NewCompilationCache()
+//	defer cache.Close(ctx)
+//
+//	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
+//
+//	config := PluginInstanceConfig{
+//		EnableWasi:    true,
+//		ModuleConfig:  wazero.NewModuleConfig(),
+//		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+//	}
+//
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	b.ResetTimer()
+//
+//	b.Run("noop", func(b *testing.B) {
+//		b.ReportAllocs()
+//
+//		for i := 0; i < b.N; i++ {
+//			_, _, err := plugin.Call("run_test", []byte{})
+//			if err != nil {
+//				panic(err)
+//			}
+//		}
+//	})
+//}
 
 var (
 	Regex2048 = "BYwnOjWhprPmDncp8qpQ5CY4r1RGZuqKLBowmtMCd test ETjLOG685YC4RIjXB0HadNpqYS4M7GPGUVAKRZRC1ibqQqGnuzqX2Hjosm6MKNCp5QifX7Up2phqkFqkjpSu3k59oi6M5YbTMiy4JukVFx2402IlrHU1McK7US0skB1cF0W2ZDpsypNmGJRXRMY0pPsYbw7G2a0xJnhTITXcuF5xJWR1rz5zdGZQbbjZoHZcEnveDFq5kOmCVc test DsJVHTsAlypLI9sVtbTLwmE1DG2C6AgUo3GO1DpCx3jV43oXUxaTVJqZO13AYqvNPbxizYZ5BckZFBbJybY3Vnm20Sm7nXbwZs5N2ugz3EpUQvXwqHdHWzc1T8uKPD5LTDM8UBpVoF test 9G3mWarrp43SvoidITriFhzHmyVWNd6n2LIVocr3pOai4DOlkAn7QDup6z6spMAf8UcI4wbfoSzG0k5Qy1rGBhPaJKJRW2 MC9ma3U3rnjAOBtEUHZ2qfOUpfMNgPlGpvzr4IGNNFf9RFlF7yRUBvRnYxyonIWPPiR1x1wWgxc20o5cW4GU7kytAOuGlpzpykcAxCJLLP6wJegaMhAeb8xBLpuBetNEbfcyyOcJBun5BhmFOmv8 test IvICWx2wlYZ61YDBpPcIpqnMb9MHwT8GroC1YITZBlNGBHMpAe4d2sNZe9d0Wvfbv5mMo30Bm1Pa5S3x38jgu6y0BaqZl9GhlukE9CqPJGUsJZ5suDH19WiOrvz7mXwXhi4lWm1YdwNi0xhVnXITtmKq5rikIS6dul1USgDf3TwyLYpyCG46Xj92PssJmnhPdH1WAnvXY sbs8RaemyqmPggtGNwU2JjuPjdmQRakIusv2WimN7zG8R8Pf1225IAJ2j8aiZBrxnjmrucaYOQCrLm7e2Q5q8 test HOkCEJJGHVLYJtGgHKa1PRQ5qCcsIAUdkW3yRfdulutteLe3We9z9XQvWuTYMLDPpOJqMzDNTGpTYts7AL8pFog1k82XVuMZ6ItccxOBpuzDcahH4wDqCGjak8qPVxmnrGmSsrdUHVz6SrScElMo0nOF8RIpYAVdJr5NxWIK1uzc1iIiZnbUD6uDNmBkmfec6IgK6aqnEZaGLDJXDHSYfzWUOi7y3KNPl0CghL9BId8v4040mCKMfmdthWWLJ2tpWIo1482ghiU5 2qtrzgFgYKfyfr4X6FXzN3hM3bLnuwItQrTCEp3BYz79bCAaQGhicZzqE83Mh2 test IIVID622qlEyVEGuEmNJ5JteEzbpklhTKnVMflzzWyWbZe6kIgeUr9mxWjkJGisvRbZKwfnojeC82M1nHgUa4k46x7Dw7mL3rChORjBxBMYjFeOvCsT6kEo3vPeachLUKdkExJbr9Yei0fKyOFSDlxpFhlRKuwGxXu4jGo4CzKDsVsahqzC9iGw53bHiw0V4Pwmdhzv482s3zU9XLTgQr6GuL1I0kSfh9BkVoK5fFvg1hm7ECrt6p8q3kLVjxte EK9W9q2q9etMaPLymcCRZ0XauMDzJY08JeVvovnT2g5hxE7UGW1 test YRotQUivrrXQnhEw55faznZZBU1ULVs4BfYkIkEfS91NetBhona6zrzDwMsXi0FJjdaiJ25lvetPDaMzUs0l6nfkGkVyU376mFPfPkpBKZR2z2Xwzxndi0SkUnqm8jCa7iq2oSJstTdUXtCK2xTXMIh7tiuPVftit GFYQXXI3vY QFe1xShWJgFAqYguQ8gcxMPSzMlyDaPmMuTPgFZDM0cd test NS3fTggxBa4p5jgS4S0nhae05RkYkXGzuNMXeu6IoR9PFqVFnXcBYD0Ld9otrAiqUuIGYGmAjm3Wx29va2UtIFaRhL02ckRfycz3BGfwqYl3TGtjWdKjmxn1WreRIIq5gkbWJws5VQsov0V2U8pGedj N2RDqWgh2tFiJA9fmytgRgqSnqxIwyBMgY5RnE6CZ0 test Iv4QPiWMu0oG70e4nSNtG13O test "
@@ -1095,71 +1096,70 @@ var (
 	Match65536 = Match32768 + Match32768
 )
 
-func BenchmarkReplace(b *testing.B) {
-	ctx := context.Background()
-	cache := wazero.NewCompilationCache()
-	defer cache.Close(ctx)
+//func BenchmarkReplace(b *testing.B) {
+//	ctx := context.Background()
+//	cache := wazero.NewCompilationCache()
+//	defer cache.Close(ctx)
+//
+//	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/replace.wasm"}}}
+//
+//	config := PluginInstanceConfig{
+//		EnableWasi:    true,
+//		ModuleConfig:  wazero.NewModuleConfig(),
+//		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
+//	}
+//
+//	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	b.ResetTimer()
+//
+//	inputs := map[string][]byte{
+//		"empty": {},
+//		"2048":  []byte(Regex2048),
+//		"4096":  []byte(Regex4096),
+//		"8192":  []byte(Regex8192),
+//		"16383": []byte(Regex16384),
+//		"32768": []byte(Regex32768),
+//	}
+//
+//	expected := map[string][]byte{
+//		"empty": {},
+//		"2048":  []byte(Match2048),
+//		"4096":  []byte(Match4096),
+//		"8192":  []byte(Match8192),
+//		"16383": []byte(Match16384),
+//		"32768": []byte(Match32768),
+//	}
+//
+//	for k, v := range inputs {
+//		expected := expected[k]
+//		b.Run(k, func(b *testing.B) {
+//			input := v
+//			b.SetBytes(int64(len(input)))
+//			b.ReportAllocs()
+//
+//			for i := 0; i < b.N; i++ {
+//				_, out, err := plugin.Call("run_test", input)
+//				if err != nil {
+//					fmt.Println("SOMETHING BAD HAPPENED: ", err)
+//					panic(err)
+//				}
+//
+//				if !equal(out, expected) {
+//					fmt.Println(string(out))
+//					panic("invalid regex match")
+//				}
+//			}
+//		})
+//	}
+//}
 
-	manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/replace.wasm"}}}
-
-	config := PluginConfig{
-		EnableWasi:    true,
-		ModuleConfig:  wazero.NewModuleConfig(),
-		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
-	}
-
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		panic(err)
-	}
-
-	b.ResetTimer()
-
-	inputs := map[string][]byte{
-		"empty": {},
-		"2048":  []byte(Regex2048),
-		"4096":  []byte(Regex4096),
-		"8192":  []byte(Regex8192),
-		"16383": []byte(Regex16384),
-		"32768": []byte(Regex32768),
-	}
-
-	expected := map[string][]byte{
-		"empty": {},
-		"2048":  []byte(Match2048),
-		"4096":  []byte(Match4096),
-		"8192":  []byte(Match8192),
-		"16383": []byte(Match16384),
-		"32768": []byte(Match32768),
-	}
-
-	for k, v := range inputs {
-		expected := expected[k]
-		b.Run(k, func(b *testing.B) {
-			input := v
-			b.SetBytes(int64(len(input)))
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				_, out, err := plugin.Call("run_test", input)
-				if err != nil {
-					fmt.Println("SOMETHING BAD HAPPENED: ", err)
-					panic(err)
-				}
-
-				if !equal(out, expected) {
-					fmt.Println(string(out))
-					panic("invalid regex match")
-				}
-			}
-		})
-	}
-}
-
-func wasiPluginConfig() PluginConfig {
-	config := PluginConfig{
+func wasiPluginConfig() PluginInstanceConfig {
+	config := PluginInstanceConfig{
 		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
-		EnableWasi:   true,
 	}
 	return config
 }
@@ -1180,18 +1180,27 @@ func manifest(name string) Manifest {
 	return manifest
 }
 
-func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Plugin, bool) {
+func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*PluginInstance, bool) {
 	ctx := context.Background()
 	config := wasiPluginConfig()
 
-	plugin, err := NewPlugin(ctx, manifest, config, funcs)
+	plugin, err := NewPlugin(ctx, manifest, PluginConfig{
+		EnableWasi:    true,
+		HostFunctions: funcs,
+	})
 
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 		return nil, false
 	}
 
-	return plugin, true
+	instance, err := plugin.Instance(ctx, config)
+	if err != nil {
+		t.Errorf("Could not create plugin instance: %v", err)
+		return nil, false
+	}
+
+	return instance, true
 }
 
 func assertCall(t *testing.T, err error, exit uint32) bool {
@@ -1218,3 +1227,38 @@ func uintToLEBytes(num uint) []byte {
 func uintFromLEBytes(bytes []byte) uint {
 	return uint(bytes[0]) | uint(bytes[1])<<8 | uint(bytes[2])<<16 | uint(bytes[3])<<24
 }
+
+//func TestFoobar(t *testing.T) {
+//	r := wazero.NewRuntimeWithConfig(context.Background(), wazero.NewRuntimeConfig())
+//
+//	manifest := manifest("host.wasm")
+//
+//	//mult := NewHostFunctionWithStack(
+//	//	"mult",
+//	//	func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+//	//		a := DecodeI32(stack[0])
+//	//		b := DecodeI32(stack[1])
+//	//
+//	//		stack[0] = EncodeI32(a * b)
+//	//	},
+//	//	[]ValueType{ValueTypePTR, ValueTypePTR},
+//	//	[]ValueType{ValueTypePTR},
+//	//)
+//	wasm, err := manifest.Wasm[0].ToWasmData(context.Background())
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	compiled, err := r.CompileModule(context.Background(), wasm.Data)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	r2 := wazero.NewRuntime(context.Background())
+//	module, err := r2.InstantiateModule(context.Background(), compiled, wazero.NewModuleConfig())
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	_ = module
+//}

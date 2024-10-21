@@ -102,10 +102,10 @@ func NewHostFunctionWithStack(
 }
 
 type CurrentPlugin struct {
-	plugin *Plugin
+	plugin *PluginInstance
 }
 
-func (p *Plugin) currentPlugin() *CurrentPlugin {
+func (p *PluginInstance) currentPlugin() *CurrentPlugin {
 	return &CurrentPlugin{p}
 }
 
@@ -129,7 +129,7 @@ func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
 
 // Alloc a new memory block of the given length, returning its offset
 func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("alloc").Call(ctx, uint64(n))
+	out, err := p.plugin.plugin.extism.ExportedFunction("alloc").Call(ctx, uint64(n))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -146,7 +146,7 @@ func (p *CurrentPlugin) Free(offset uint64) error {
 
 // Free the memory block specified by the given offset
 func (p *CurrentPlugin) FreeWithContext(ctx context.Context, offset uint64) error {
-	_, err := p.plugin.Runtime.Extism.ExportedFunction("free").Call(ctx, uint64(offset))
+	_, err := p.plugin.plugin.extism.ExportedFunction("free").Call(ctx, uint64(offset))
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
 
 // Length returns the number of bytes allocated at the specified offset
 func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uint64, error) {
-	out, err := p.plugin.Runtime.Extism.ExportedFunction("length").Call(ctx, uint64(offs))
+	out, err := p.plugin.plugin.extism.ExportedFunction("length").Call(ctx, uint64(offs))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -238,7 +238,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		closure := f.stackCallback
 
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
-			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return
 			}
@@ -248,7 +248,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	}
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
+func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (wazero.CompiledModule, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
 
 	wrap := func(name string, params []ValueType, results []ValueType) {
@@ -309,7 +309,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
-			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 				if LogLevel(pluginLogLevel.Load()) > level {
 					plugin.currentPlugin().Free(offset)
 					return
@@ -337,11 +337,11 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	logFunc("log_warn", LogLevelWarn)
 	logFunc("log_error", LogLevelError)
 
-	return builder.Instantiate(ctx)
+	return builder.Compile(ctx)
 }
 
 func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -355,7 +355,7 @@ func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -367,7 +367,7 @@ func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -384,7 +384,7 @@ func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
@@ -410,7 +410,7 @@ func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
@@ -438,7 +438,7 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
-	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
+	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance)
 	if !ok {
 		panic("Invalid context, `plugin` key not found")
 	}
@@ -485,7 +485,7 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 		cp := plugin.currentPlugin()
 
 		if plugin.LastResponseHeaders != nil {
@@ -589,7 +589,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 }
 
 func httpStatusCode(ctx context.Context, m api.Module) int32 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 		return int32(plugin.LastStatusCode)
 	}
 
@@ -597,7 +597,7 @@ func httpStatusCode(ctx context.Context, m api.Module) int32 {
 }
 
 func httpHeaders(ctx context.Context, _ api.Module) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 		if plugin.LastResponseHeaders == nil {
 			return 0
 		}
@@ -617,7 +617,7 @@ func httpHeaders(ctx context.Context, _ api.Module) uint64 {
 }
 
 func getLogLevel(ctx context.Context, m api.Module) int32 {
-	// if _, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
+	// if _, ok := ctx.Value(PluginCtxKey("plugin")).(*PluginInstance); ok {
 	// 	panic("Invalid context, `plugin` key not found")
 	// }
 	return LogLevel(pluginLogLevel.Load()).ExtismCompat()
