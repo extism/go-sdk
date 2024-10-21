@@ -132,8 +132,8 @@ func logStd(level LogLevel, message string) {
 	log.Print(message)
 }
 
-func (p *PluginInstance) Module() Module {
-	return Module{inner: p.module}
+func (p *PluginInstance) Module() *Module {
+	return &Module{inner: p.module}
 }
 
 // SetLogger sets a custom logging callback
