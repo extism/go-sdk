@@ -338,8 +338,8 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 }
 
 // Close closes the plugin by freeing the underlying resources.
-func (p *PluginInstance) Close() error {
-	return p.CloseWithContext(context.Background())
+func (p *PluginInstance) Close(ctx context.Context) error {
+	return p.CloseWithContext(ctx)
 }
 
 // CloseWithContext closes the plugin by freeing the underlying resources.

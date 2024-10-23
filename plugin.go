@@ -144,19 +144,20 @@ func NewPlugin(
 		if err != nil {
 			return nil, err
 		}
-		modules[data.Name] = m
-
 		if data.Name == "main" {
-			p.main, err = p.runtime.CompileModule(ctx, data.Data)
-			if err != nil {
-				return nil, fmt.Errorf("failed to compile main module: %v", err)
-			}
+			p.main = m
+		} else {
+			modules[data.Name] = m
 		}
 	}
 
 	if p.main == nil {
 		return nil, errors.New("no main module found")
 	}
+
+	// We no longer need the wasm in the manifest so nil it
+	// to make the slice eligible for garbage collection.
+	p.manifest.Wasm = nil
 
 	return &p, nil
 }
@@ -238,4 +239,8 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 	}
 	instance.guestRuntime = detectGuestRuntime(ctx, instance)
 	return instance, nil
+}
+
+func (p *Plugin) Close(ctx context.Context) error {
+	return p.runtime.Close(ctx)
 }
