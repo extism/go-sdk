@@ -108,7 +108,7 @@ func (l LogLevel) String() string {
 // PluginInstance is used to call WASM functions
 type PluginInstance struct {
 	close  []func(ctx context.Context) error
-	plugin *Plugin
+	extism api.Module
 
 	//Runtime *Runtime
 	//Main    Module
@@ -124,9 +124,10 @@ type PluginInstance struct {
 	MaxHttpResponseBytes int64
 	MaxVarBytes          int64
 	log                  func(LogLevel, string)
+	hasWasi              bool
 	guestRuntime         guestRuntime
 	Adapter              *observe.AdapterBase
-	TraceCtx             *observe.TraceCtx
+	traceCtx             *observe.TraceCtx
 }
 
 func logStd(level LogLevel, message string) {
@@ -367,18 +368,18 @@ func (p *PluginInstance) SetInput(data []byte) (uint64, error) {
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (p *PluginInstance) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
-	_, err := p.plugin.extism.ExportedFunction("reset").Call(ctx)
+	_, err := p.extism.ExportedFunction("reset").Call(ctx)
 	if err != nil {
 		fmt.Println(err)
 		return 0, errors.New("reset")
 	}
 
-	ptr, err := p.plugin.extism.ExportedFunction("alloc").Call(ctx, uint64(len(data)))
+	ptr, err := p.extism.ExportedFunction("alloc").Call(ctx, uint64(len(data)))
 	if err != nil {
 		return 0, err
 	}
 	p.Memory().Write(uint32(ptr[0]), data)
-	p.plugin.extism.ExportedFunction("input_set").Call(ctx, ptr[0], uint64(len(data)))
+	p.extism.ExportedFunction("input_set").Call(ctx, ptr[0], uint64(len(data)))
 	return ptr[0], nil
 }
 
@@ -389,12 +390,12 @@ func (p *PluginInstance) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	outputOffs, err := p.plugin.extism.ExportedFunction("output_offset").Call(ctx)
+	outputOffs, err := p.extism.ExportedFunction("output_offset").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	outputLen, err := p.plugin.extism.ExportedFunction("output_length").Call(ctx)
+	outputLen, err := p.extism.ExportedFunction("output_length").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -409,7 +410,7 @@ func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, erro
 
 // Memory returns the plugin's WebAssembly memory interface.
 func (p *PluginInstance) Memory() api.Memory {
-	return p.plugin.extism.ExportedMemory("memory")
+	return p.extism.ExportedMemory("memory")
 }
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
@@ -419,7 +420,7 @@ func (p *PluginInstance) GetError() string {
 
 // GetErrorWithContext retrieves the error message from the last WebAssembly function call.
 func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
-	errOffs, err := p.plugin.extism.ExportedFunction("error_get").Call(ctx)
+	errOffs, err := p.extism.ExportedFunction("error_get").Call(ctx)
 	if err != nil {
 		return ""
 	}
@@ -428,7 +429,7 @@ func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
 		return ""
 	}
 
-	errLen, err := p.plugin.extism.ExportedFunction("length").Call(ctx, errOffs[0])
+	errLen, err := p.extism.ExportedFunction("length").Call(ctx, errOffs[0])
 	if err != nil {
 		return ""
 	}
@@ -485,8 +486,8 @@ func (p *PluginInstance) CallWithContext(ctx context.Context, name string, data 
 
 	res, err := f.Call(ctx)
 
-	if p.TraceCtx != nil {
-		defer p.TraceCtx.Finish()
+	if p.traceCtx != nil {
+		defer p.traceCtx.Finish()
 	}
 
 	// Try to extact WASI exit code

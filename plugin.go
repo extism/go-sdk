@@ -10,17 +10,22 @@ import (
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
+	"strings"
 	"time"
 )
 
 type Plugin struct {
-	runtime        wazero.Runtime
-	extism         api.Module
-	env            wazero.CompiledModule
-	main           wazero.CompiledModule
+	runtime wazero.Runtime
+	extism  api.Module
+	env     wazero.CompiledModule
+	main    wazero.CompiledModule
+	// this is the raw wasm bytes of the provided module, it is required when using a tracing observeAdapter.
+	// If an adapter is not provided, this field will be nil.
+	wasmBytes      []byte
 	hasWasi        bool
 	manifest       Manifest
 	observeAdapter *observe.AdapterBase
+	observeOptions *observe.Options
 
 	maxHttp                   int64
 	maxVar                    int64
@@ -66,9 +71,10 @@ func NewPlugin(
 	}
 
 	p := Plugin{
+		manifest:       manifest,
 		runtime:        wazero.NewRuntimeWithConfig(ctx, cfg),
 		observeAdapter: config.ObserveAdapter,
-		manifest:       manifest,
+		observeOptions: config.ObserveOptions,
 	}
 
 	var err error
@@ -105,7 +111,6 @@ func NewPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
-	var trace *observe.TraceCtx
 	modules := map[string]wazero.CompiledModule{}
 	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
@@ -116,15 +121,6 @@ func NewPlugin(
 		_, mainExists := modules["main"]
 		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
 			data.Name = "main"
-		}
-
-		if data.Name == "main" && config.ObserveAdapter != nil {
-			trace, err = config.ObserveAdapter.NewTraceCtx(ctx, p.runtime, data.Data, config.ObserveOptions)
-			if err != nil {
-				return nil, fmt.Errorf("failed to initialize Observe Adapter: %v", err)
-			}
-
-			trace.Finish()
 		}
 
 		_, okm := modules[data.Name]
@@ -138,6 +134,10 @@ func NewPlugin(
 			if data.Hash != calculatedHash {
 				return nil, fmt.Errorf("hash mismatch for module '%s'", data.Name)
 			}
+		}
+
+		if p.observeAdapter != nil {
+			p.wasmBytes = data.Data
 		}
 
 		m, err := p.runtime.CompileModule(ctx, data.Data)
@@ -160,6 +160,10 @@ func NewPlugin(
 	p.manifest.Wasm = nil
 
 	return &p, nil
+}
+
+func (p *Plugin) Close(ctx context.Context) error {
+	return p.runtime.Close(ctx)
 }
 
 func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*PluginInstance, error) {
@@ -188,6 +192,14 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
 	fs := wazero.NewFSConfig()
+	for host, guest := range p.manifest.AllowedPaths {
+		if strings.HasPrefix(host, "ro:") {
+			trimmed := strings.TrimPrefix(host, "ro:")
+			fs = fs.WithReadOnlyDirMount(trimmed, guest)
+		} else {
+			fs = fs.WithDirMount(host, guest)
+		}
+	}
 
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
@@ -197,6 +209,16 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
 	if p.hasWasi && wasiOutput {
 		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
+	}
+
+	var trace *observe.TraceCtx
+	if p.observeAdapter != nil {
+		trace, err = p.observeAdapter.NewTraceCtx(ctx, p.runtime, p.wasmBytes, p.observeOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Observe Adapter: %v", err)
+		}
+
+		trace.Finish()
 	}
 
 	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
@@ -222,7 +244,8 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 
 	instance := &PluginInstance{
 		close:                closers,
-		plugin:               p,
+		extism:               p.extism,
+		hasWasi:              p.hasWasi,
 		module:               main,
 		Timeout:              time.Duration(p.manifest.Timeout) * time.Millisecond,
 		Config:               p.manifest.Config,
@@ -236,11 +259,8 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 		guestRuntime:         guestRuntime{},
 		Adapter:              p.observeAdapter,
 		log:                  logStd,
+		traceCtx:             trace,
 	}
 	instance.guestRuntime = detectGuestRuntime(ctx, instance)
 	return instance, nil
-}
-
-func (p *Plugin) Close(ctx context.Context) error {
-	return p.runtime.Close(ctx)
 }

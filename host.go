@@ -129,7 +129,7 @@ func (p *CurrentPlugin) Alloc(n uint64) (uint64, error) {
 
 // Alloc a new memory block of the given length, returning its offset
 func (p *CurrentPlugin) AllocWithContext(ctx context.Context, n uint64) (uint64, error) {
-	out, err := p.plugin.plugin.extism.ExportedFunction("alloc").Call(ctx, uint64(n))
+	out, err := p.plugin.extism.ExportedFunction("alloc").Call(ctx, uint64(n))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {
@@ -146,7 +146,7 @@ func (p *CurrentPlugin) Free(offset uint64) error {
 
 // Free the memory block specified by the given offset
 func (p *CurrentPlugin) FreeWithContext(ctx context.Context, offset uint64) error {
-	_, err := p.plugin.plugin.extism.ExportedFunction("free").Call(ctx, uint64(offset))
+	_, err := p.plugin.extism.ExportedFunction("free").Call(ctx, uint64(offset))
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (p *CurrentPlugin) Length(offs uint64) (uint64, error) {
 
 // Length returns the number of bytes allocated at the specified offset
 func (p *CurrentPlugin) LengthWithContext(ctx context.Context, offs uint64) (uint64, error) {
-	out, err := p.plugin.plugin.extism.ExportedFunction("length").Call(ctx, uint64(offs))
+	out, err := p.plugin.extism.ExportedFunction("length").Call(ctx, uint64(offs))
 	if err != nil {
 		return 0, err
 	} else if len(out) != 1 {

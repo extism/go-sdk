@@ -74,7 +74,7 @@ func haskellRuntime(ctx context.Context, p *PluginInstance, m api.Module) (guest
 
 // Check for initialization functions defined by the WASI standard
 func wasiRuntime(ctx context.Context, p *PluginInstance, m api.Module) (guestRuntime, bool) {
-	if !p.plugin.hasWasi {
+	if !p.hasWasi {
 		return guestRuntime{}, false
 	}
 
