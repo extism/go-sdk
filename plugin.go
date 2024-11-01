@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-type Plugin struct {
+type CompiledPlugin struct {
 	runtime wazero.Runtime
 	extism  api.Module
 	env     wazero.CompiledModule
@@ -39,11 +39,11 @@ type PluginConfig struct {
 	HostFunctions  []HostFunction
 }
 
-func NewPlugin(
+func NewCompiledPlugin(
 	ctx context.Context,
 	manifest Manifest,
 	config PluginConfig,
-) (*Plugin, error) {
+) (*CompiledPlugin, error) {
 	count := len(manifest.Wasm)
 	if count == 0 {
 		return nil, fmt.Errorf("manifest can't be empty")
@@ -67,7 +67,7 @@ func NewPlugin(
 		}
 	}
 
-	p := Plugin{
+	p := CompiledPlugin{
 		manifest:       manifest,
 		runtime:        wazero.NewRuntimeWithConfig(ctx, cfg),
 		observeAdapter: config.ObserveAdapter,
@@ -159,11 +159,11 @@ func NewPlugin(
 	return &p, nil
 }
 
-func (p *Plugin) Close(ctx context.Context) error {
+func (p *CompiledPlugin) Close(ctx context.Context) error {
 	return p.runtime.Close(ctx)
 }
 
-func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*PluginInstance, error) {
+func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*InstantiatedPlugin, error) {
 	var closers []func(ctx context.Context) error
 
 	// Instantiate the env module which was already pre-compiled as anonymous modules
@@ -234,7 +234,7 @@ func (p *Plugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Pl
 		p.maxVar = p.manifest.Memory.MaxVarBytes
 	}
 
-	instance := &PluginInstance{
+	instance := &InstantiatedPlugin{
 		close:                closers,
 		extism:               p.extism,
 		hasWasi:              p.hasWasi,

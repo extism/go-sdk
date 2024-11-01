@@ -105,8 +105,8 @@ func (l LogLevel) String() string {
 	return s
 }
 
-// PluginInstance is used to call WASM functions
-type PluginInstance struct {
+// InstantiatedPlugin is used to call WASM functions
+type InstantiatedPlugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
@@ -133,16 +133,16 @@ func logStd(level LogLevel, message string) {
 	log.Print(message)
 }
 
-func (p *PluginInstance) Module() *Module {
+func (p *InstantiatedPlugin) Module() *Module {
 	return &Module{inner: p.module}
 }
 
 // SetLogger sets a custom logging callback
-func (p *PluginInstance) SetLogger(logger func(LogLevel, string)) {
+func (p *InstantiatedPlugin) SetLogger(logger func(LogLevel, string)) {
 	p.log = logger
 }
 
-func (p *PluginInstance) Log(level LogLevel, message string) {
+func (p *InstantiatedPlugin) Log(level LogLevel, message string) {
 	minimumLevel := LogLevel(pluginLogLevel.Load())
 
 	// If the global log level hasn't been set, use LogLevelOff as default
@@ -155,7 +155,7 @@ func (p *PluginInstance) Log(level LogLevel, message string) {
 	}
 }
 
-func (p *PluginInstance) Logf(level LogLevel, format string, args ...any) {
+func (p *InstantiatedPlugin) Logf(level LogLevel, format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	p.Log(level, message)
 }
@@ -338,12 +338,12 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 }
 
 // Close closes the plugin by freeing the underlying resources.
-func (p *PluginInstance) Close(ctx context.Context) error {
+func (p *InstantiatedPlugin) Close(ctx context.Context) error {
 	return p.CloseWithContext(ctx)
 }
 
 // CloseWithContext closes the plugin by freeing the underlying resources.
-func (p *PluginInstance) CloseWithContext(ctx context.Context) error {
+func (p *InstantiatedPlugin) CloseWithContext(ctx context.Context) error {
 	for _, fn := range p.close {
 		if err := fn(ctx); err != nil {
 			return err
@@ -360,194 +360,13 @@ func SetLogLevel(level LogLevel) {
 	pluginLogLevel.Store(int32(level))
 }
 
-// NewPlugin creates a new Extism plugin with the given manifest, configuration, and host functions.
-// The returned plugin can be used to call WebAssembly functions and interact with the plugin.
-//func _NewPlugin(
-//	ctx context.Context,
-//	manifest Manifest,
-//	config PluginInstanceConfig,
-//	functions []HostFunction) (*PluginInstance, error) {
-//	var rconfig wazero.RuntimeConfig
-//	if config.RuntimeConfig == nil {
-//		rconfig = wazero.NewRuntimeConfig()
-//	} else {
-//		rconfig = config.RuntimeConfig
-//	}
-//
-//	// Make sure function calls are cancelled if the context is cancelled
-//	if manifest.Timeout > 0 {
-//		rconfig = rconfig.WithCloseOnContextDone(true)
-//	}
-//
-//	if manifest.Memory != nil {
-//		if manifest.Memory.MaxPages > 0 {
-//			rconfig = rconfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
-//		}
-//	}
-//
-//	rt := wazero.NewRuntimeWithConfig(ctx, rconfig)
-//
-//	extism, err := rt.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	hostModules := make(map[string][]HostFunction, 0)
-//	for _, f := range functions {
-//		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
-//	}
-//
-//	env, err := buildEnvModule(ctx, rt, extism)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	c := Runtime{
-//		Wazero: rt,
-//		Extism: extism,
-//		Env:    env,
-//	}
-//
-//	if config.EnableWasi {
-//		wasi_snapshot_preview1.MustInstantiate(ctx, c.Wazero)
-//
-//		c.hasWasi = true
-//	}
-//
-//	for name, funcs := range hostModules {
-//		_, err := buildHostModule(ctx, c.Wazero, name, funcs)
-//		if err != nil {
-//			return nil, err
-//		}
-//	}
-//
-//	count := len(manifest.Wasm)
-//	if count == 0 {
-//		return nil, fmt.Errorf("manifest can't be empty")
-//	}
-//
-//	modules := map[string]Module{}
-//
-//	// NOTE: this is only necessary for guest modules because
-//	// host modules have the same access privileges as the host itself
-//	fs := wazero.NewFSConfig()
-//
-//	for host, guest := range manifest.AllowedPaths {
-//		if strings.HasPrefix(host, "ro:") {
-//			trimmed := strings.TrimPrefix(host, "ro:")
-//			fs = fs.WithReadOnlyDirMount(trimmed, guest)
-//		} else {
-//			fs = fs.WithDirMount(host, guest)
-//		}
-//	}
-//
-//	moduleConfig := config.ModuleConfig
-//	if moduleConfig == nil {
-//		moduleConfig = wazero.NewModuleConfig()
-//	}
-//
-//	// NOTE: we don't want wazero to call the start function, we will initialize
-//	// the guest runtime manually.
-//	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
-//	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
-//
-//	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
-//	if c.hasWasi && wasiOutput {
-//		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
-//	}
-//
-//	// Try to find the main module:
-//	//  - There is always one main module
-//	//  - If a Wasm value has the Name field set to "main" then use that module
-//	//  - If there is only one module in the manifest then that is the main module by default
-//	//  - Otherwise the last module listed is the main module
-//
-//	var trace *observe.traceCtx
-//	for i, wasm := range manifest.Wasm {
-//		data, err := wasm.ToWasmData(ctx)
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		_, mainExists := modules["main"]
-//		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
-//			data.Name = "main"
-//		}
-//
-//		if data.Name == "main" && config.ObserveAdapter != nil {
-//			trace, err = config.ObserveAdapter.NewTraceCtx(ctx, c.Wazero, data.Data, config.ObserveOptions)
-//			if err != nil {
-//				return nil, fmt.Errorf("failed to initialize Observe Adapter: %v", err)
-//			}
-//
-//			trace.Finish()
-//		}
-//
-//		_, okh := hostModules[data.Name]
-//		_, okm := modules[data.Name]
-//
-//		if data.Name == "extism:host/env" || okh || okm {
-//			return nil, fmt.Errorf("module name collision: '%s'", data.Name)
-//		}
-//
-//		if data.Hash != "" {
-//			calculatedHash := calculateHash(data.Data)
-//			if data.Hash != calculatedHash {
-//				return nil, fmt.Errorf("hash mismatch for module '%s'", data.Name)
-//			}
-//		}
-//
-//		m, err := c.Wazero.InstantiateWithConfig(ctx, data.Data, moduleConfig.WithName(data.Name))
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		modules[data.Name] = Module{inner: m}
-//	}
-//
-//	httpMax := int64(1024 * 1024 * 50)
-//	if manifest.Memory != nil && manifest.Memory.MaxHttpResponseBytes >= 0 {
-//		httpMax = int64(manifest.Memory.MaxHttpResponseBytes)
-//	}
-//
-//	varMax := int64(1024 * 1024)
-//	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
-//		varMax = int64(manifest.Memory.MaxVarBytes)
-//	}
-//	for _, m := range modules {
-//		if m.inner.Name() == "main" {
-//			p := &PluginInstance{
-//				Runtime:              &c,
-//				Modules:              modules,
-//				Main:                 m,
-//				Config:               manifest.Config,
-//				Var:                  map[string][]byte{},
-//				AllowedHosts:         manifest.AllowedHosts,
-//				AllowedPaths:         manifest.AllowedPaths,
-//				LastStatusCode:       0,
-//				Timeout:              time.Duration(manifest.Timeout) * time.Millisecond,
-//				MaxHttpResponseBytes: httpMax,
-//				MaxVarBytes:          varMax,
-//				log:                  logStd,
-//				Adapter:              config.ObserveAdapter,
-//				traceCtx:             trace,
-//			}
-//
-//			p.guestRuntime = detectGuestRuntime(ctx, p)
-//			return p, nil
-//		}
-//	}
-//
-//	return nil, errors.New("no main module found")
-//}
-
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
-func (p *PluginInstance) SetInput(data []byte) (uint64, error) {
+func (p *InstantiatedPlugin) SetInput(data []byte) (uint64, error) {
 	return p.SetInputWithContext(context.Background(), data)
 }
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
-func (p *PluginInstance) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
+func (p *InstantiatedPlugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
 	_, err := p.extism.ExportedFunction("reset").Call(ctx)
 	if err != nil {
 		fmt.Println(err)
@@ -564,12 +383,12 @@ func (p *PluginInstance) SetInputWithContext(ctx context.Context, data []byte) (
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
-func (p *PluginInstance) GetOutput() ([]byte, error) {
+func (p *InstantiatedPlugin) GetOutput() ([]byte, error) {
 	return p.GetOutputWithContext(context.Background())
 }
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
-func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, error) {
+func (p *InstantiatedPlugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
 	outputOffs, err := p.extism.ExportedFunction("output_offset").Call(ctx)
 	if err != nil {
 		return []byte{}, err
@@ -589,17 +408,17 @@ func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, erro
 }
 
 // Memory returns the plugin's WebAssembly memory interface.
-func (p *PluginInstance) Memory() api.Memory {
+func (p *InstantiatedPlugin) Memory() api.Memory {
 	return p.extism.ExportedMemory("memory")
 }
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
-func (p *PluginInstance) GetError() string {
+func (p *InstantiatedPlugin) GetError() string {
 	return p.GetErrorWithContext(context.Background())
 }
 
 // GetErrorWithContext retrieves the error message from the last WebAssembly function call.
-func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
+func (p *InstantiatedPlugin) GetErrorWithContext(ctx context.Context) string {
 	errOffs, err := p.extism.ExportedFunction("error_get").Call(ctx)
 	if err != nil {
 		return ""
@@ -619,17 +438,17 @@ func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
 }
 
 // FunctionExists returns true when the named function is present in the plugin's main Module
-func (p *PluginInstance) FunctionExists(name string) bool {
+func (p *InstantiatedPlugin) FunctionExists(name string) bool {
 	return p.module.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
-func (p *PluginInstance) Call(name string, data []byte) (uint32, []byte, error) {
+func (p *InstantiatedPlugin) Call(name string, data []byte) (uint32, []byte, error) {
 	return p.CallWithContext(context.Background(), name, data)
 }
 
 // Call a function by name with the given input and context, returning the output
-func (p *PluginInstance) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+func (p *InstantiatedPlugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, p.Timeout)
