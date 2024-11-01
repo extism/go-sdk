@@ -247,7 +247,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	}
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (wazero.CompiledModule, error) {
+func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
 
 	wrap := func(name string, params []ValueType, results []ValueType) {
@@ -335,7 +335,7 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 	logFunc("log_warn", LogLevelWarn)
 	logFunc("log_error", LogLevelError)
 
-	return builder.Compile(ctx)
+	return builder.Instantiate(ctx)
 }
 
 func store_u64(ctx context.Context, mod api.Module, stack []uint64) {

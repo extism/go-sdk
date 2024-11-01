@@ -6,8 +6,6 @@ import (
 	"fmt"
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strings"
@@ -16,8 +14,6 @@ import (
 
 type CompiledPlugin struct {
 	runtime wazero.Runtime
-	extism  api.Module
-	env     wazero.CompiledModule
 	main    wazero.CompiledModule
 	// this is the raw wasm bytes of the provided module, it is required when using a tracing observeAdapter.
 	// If an adapter is not provided, this field will be nil.
@@ -74,20 +70,9 @@ func NewCompiledPlugin(
 		observeOptions: config.ObserveOptions,
 	}
 
-	var err error
-	p.extism, err = p.runtime.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
-	if err != nil {
-		return nil, err
-	}
-
 	if config.EnableWasi {
 		wasi_snapshot_preview1.MustInstantiate(ctx, p.runtime)
 		p.hasWasi = true
-	}
-
-	p.env, err = buildEnvModule(ctx, p.runtime, p.extism)
-	if err != nil {
-		return nil, err
 	}
 
 	// Build host modules
@@ -166,21 +151,6 @@ func (p *CompiledPlugin) Close(ctx context.Context) error {
 func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*InstantiatedPlugin, error) {
 	var closers []func(ctx context.Context) error
 
-	// Instantiate the env module which was already pre-compiled as anonymous modules
-	// allowing them to be dynamically imported by the import resolver. We'll clean up
-	// the env module when the plugin instance is closed.
-	env, err := p.runtime.InstantiateModule(ctx, p.env, wazero.NewModuleConfig().WithName(""))
-	if err != nil {
-		return nil, fmt.Errorf("instantiating env module: %w", err)
-	}
-	closers = append(closers, env.Close)
-	ctx = experimental.WithImportResolver(ctx, func(lookupName string) api.Module {
-		if lookupName == "extism:host/env" {
-			return env
-		}
-		return nil
-	})
-
 	moduleConfig := config.ModuleConfig
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
@@ -209,6 +179,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	}
 
 	var trace *observe.TraceCtx
+	var err error
 	if p.observeAdapter != nil {
 		trace, err = p.observeAdapter.NewTraceCtx(ctx, p.runtime, p.wasmBytes, p.observeOptions)
 		if err != nil {
@@ -217,6 +188,18 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 
 		trace.Finish()
 	}
+
+	extism, err := p.runtime.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, extism.Close)
+
+	env, err := buildEnvModule(ctx, p.runtime, extism)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, env.Close)
 
 	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
 	if err != nil {
@@ -236,7 +219,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 
 	instance := &InstantiatedPlugin{
 		close:                closers,
-		extism:               p.extism,
+		extism:               extism,
 		hasWasi:              p.hasWasi,
 		module:               main,
 		Timeout:              time.Duration(p.manifest.Timeout) * time.Millisecond,
