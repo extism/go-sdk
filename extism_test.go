@@ -35,7 +35,7 @@ func TestWasmUrl(t *testing.T) {
 	}
 
 	_, ok := plugin(t, manifest)
-	assert.True(t, ok, "PluginInstance must be succussfuly created")
+	assert.True(t, ok, "InstantiatedPlugin must be succussfuly created")
 }
 
 func TestHashMismatch(t *testing.T) {
@@ -55,11 +55,11 @@ func TestHashMismatch(t *testing.T) {
 	ctx := context.Background()
 	//config := wasiPluginConfig()
 
-	_, err := NewPlugin(ctx, manifest, PluginConfig{
+	_, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi: true,
 	})
 
-	assert.NotNil(t, err, "PluginInstance must fail")
+	assert.NotNil(t, err, "InstantiatedPlugin must fail")
 }
 
 func TestFunctionExsits(t *testing.T) {
@@ -360,7 +360,7 @@ func TestHost_multiple(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	p, err := NewPlugin(ctx, manifest, PluginConfig{
+	p, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi:    true,
 		HostFunctions: hostFunctions,
 	})
@@ -602,7 +602,7 @@ func TestTimeout(t *testing.T) {
 		EnableWasi: true,
 	}
 
-	plugin, err := NewPlugin(context.Background(), manifest, config)
+	plugin, err := NewCompiledPlugin(context.Background(), manifest, config)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	plugin, err := NewPlugin(ctx, manifest, PluginConfig{
+	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi:    true,
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	})
@@ -889,8 +889,8 @@ func TestObserve(t *testing.T) {
 		},
 	}
 
-	// PluginInstance 1
-	plugin, err := NewPlugin(ctx, manifest, config)
+	// InstantiatedPlugin 1
+	plugin, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		panic(err)
 	}
@@ -927,8 +927,8 @@ func TestObserve(t *testing.T) {
 	// Reset underlying buffer
 	buf.Reset()
 
-	// PluginInstance 2
-	plugin2, err := NewPlugin(ctx, manifest, config)
+	// InstantiatedPlugin 2
+	plugin2, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		panic(err)
 	}
@@ -955,7 +955,7 @@ func TestObserve(t *testing.T) {
 	assert.Contains(t, actual2, "              Call to printf took")
 }
 
-// make sure cancelling the context given to NewPlugin doesn't affect plugin calls
+// make sure cancelling the context given to NewCompiledPlugin doesn't affect plugin calls
 func TestContextCancel(t *testing.T) {
 	manifest := manifest("sleep.wasm")
 	manifest.Config["duration"] = "0" // sleep for 0 seconds
@@ -966,7 +966,7 @@ func TestContextCancel(t *testing.T) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	}
 
-	plugin, err := NewPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -1000,7 +1000,7 @@ func TestEnableExperimentalFeature(t *testing.T) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	}
 
-	plugin, err := NewPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -1039,7 +1039,7 @@ func BenchmarkInitialize(b *testing.B) {
 				RuntimeConfig: wazero.NewRuntimeConfig(),
 			}
 
-			plugin, err := NewPlugin(ctx, manifest, config)
+			plugin, err := NewCompiledPlugin(ctx, manifest, config)
 			if err != nil {
 				panic(err)
 			}
@@ -1070,7 +1070,7 @@ func BenchmarkInitializeWithCache(b *testing.B) {
 				RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 			}
 
-			plugin, err := NewPlugin(ctx, manifest, config)
+			plugin, err := NewCompiledPlugin(ctx, manifest, config)
 			if err != nil {
 				panic(err)
 			}
@@ -1097,7 +1097,7 @@ func BenchmarkNoop(b *testing.B) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
-	plugin, err := NewPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		panic(err)
 	}
@@ -1156,7 +1156,7 @@ func BenchmarkReplace(b *testing.B) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
-	plugin, err := NewPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config)
 	if err != nil {
 		panic(err)
 	}
@@ -1232,11 +1232,11 @@ func manifest(name string) Manifest {
 	return manifest
 }
 
-func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*PluginInstance, bool) {
+func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*InstantiatedPlugin, bool) {
 	ctx := context.Background()
 	config := wasiPluginConfig()
 
-	plugin, err := NewPlugin(ctx, manifest, PluginConfig{
+	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi:    true,
 		HostFunctions: funcs,
 	})

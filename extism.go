@@ -105,8 +105,8 @@ func (l LogLevel) String() string {
 	return s
 }
 
-// PluginInstance is used to call WASM functions
-type PluginInstance struct {
+// InstantiatedPlugin is used to call WASM functions
+type InstantiatedPlugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
@@ -134,16 +134,16 @@ func logStd(level LogLevel, message string) {
 	log.Print(message)
 }
 
-func (p *PluginInstance) Module() *Module {
+func (p *InstantiatedPlugin) Module() *Module {
 	return &Module{inner: p.module}
 }
 
 // SetLogger sets a custom logging callback
-func (p *PluginInstance) SetLogger(logger func(LogLevel, string)) {
+func (p *InstantiatedPlugin) SetLogger(logger func(LogLevel, string)) {
 	p.log = logger
 }
 
-func (p *PluginInstance) Log(level LogLevel, message string) {
+func (p *InstantiatedPlugin) Log(level LogLevel, message string) {
 	minimumLevel := LogLevel(pluginLogLevel.Load())
 
 	// If the global log level hasn't been set, use LogLevelOff as default
@@ -156,7 +156,7 @@ func (p *PluginInstance) Log(level LogLevel, message string) {
 	}
 }
 
-func (p *PluginInstance) Logf(level LogLevel, format string, args ...any) {
+func (p *InstantiatedPlugin) Logf(level LogLevel, format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	p.Log(level, message)
 }
@@ -339,12 +339,12 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 }
 
 // Close closes the plugin by freeing the underlying resources.
-func (p *PluginInstance) Close(ctx context.Context) error {
+func (p *InstantiatedPlugin) Close(ctx context.Context) error {
 	return p.CloseWithContext(ctx)
 }
 
 // CloseWithContext closes the plugin by freeing the underlying resources.
-func (p *PluginInstance) CloseWithContext(ctx context.Context) error {
+func (p *InstantiatedPlugin) CloseWithContext(ctx context.Context) error {
 	for _, fn := range p.close {
 		if err := fn(ctx); err != nil {
 			return err
@@ -362,12 +362,12 @@ func SetLogLevel(level LogLevel) {
 }
 
 // SetInput sets the input data for the plugin to be used in the next WebAssembly function call.
-func (p *PluginInstance) SetInput(data []byte) (uint64, error) {
+func (p *InstantiatedPlugin) SetInput(data []byte) (uint64, error) {
 	return p.SetInputWithContext(context.Background(), data)
 }
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
-func (p *PluginInstance) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
+func (p *InstantiatedPlugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
 	_, err := p.extism.ExportedFunction("reset").Call(ctx)
 	if err != nil {
 		fmt.Println(err)
@@ -384,12 +384,12 @@ func (p *PluginInstance) SetInputWithContext(ctx context.Context, data []byte) (
 }
 
 // GetOutput retrieves the output data from the last WebAssembly function call.
-func (p *PluginInstance) GetOutput() ([]byte, error) {
+func (p *InstantiatedPlugin) GetOutput() ([]byte, error) {
 	return p.GetOutputWithContext(context.Background())
 }
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
-func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, error) {
+func (p *InstantiatedPlugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
 	outputOffs, err := p.extism.ExportedFunction("output_offset").Call(ctx)
 	if err != nil {
 		return []byte{}, err
@@ -409,17 +409,17 @@ func (p *PluginInstance) GetOutputWithContext(ctx context.Context) ([]byte, erro
 }
 
 // Memory returns the plugin's WebAssembly memory interface.
-func (p *PluginInstance) Memory() api.Memory {
+func (p *InstantiatedPlugin) Memory() api.Memory {
 	return p.extism.ExportedMemory("memory")
 }
 
 // GetError retrieves the error message from the last WebAssembly function call, if any.
-func (p *PluginInstance) GetError() string {
+func (p *InstantiatedPlugin) GetError() string {
 	return p.GetErrorWithContext(context.Background())
 }
 
 // GetErrorWithContext retrieves the error message from the last WebAssembly function call.
-func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
+func (p *InstantiatedPlugin) GetErrorWithContext(ctx context.Context) string {
 	errOffs, err := p.extism.ExportedFunction("error_get").Call(ctx)
 	if err != nil {
 		return ""
@@ -439,17 +439,17 @@ func (p *PluginInstance) GetErrorWithContext(ctx context.Context) string {
 }
 
 // FunctionExists returns true when the named function is present in the plugin's main Module
-func (p *PluginInstance) FunctionExists(name string) bool {
+func (p *InstantiatedPlugin) FunctionExists(name string) bool {
 	return p.module.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
-func (p *PluginInstance) Call(name string, data []byte) (uint32, []byte, error) {
+func (p *InstantiatedPlugin) Call(name string, data []byte) (uint32, []byte, error) {
 	return p.CallWithContext(context.Background(), name, data)
 }
 
 // Call a function by name with the given input and context, returning the output
-func (p *PluginInstance) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+func (p *InstantiatedPlugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, p.Timeout)
