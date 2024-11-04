@@ -561,7 +561,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 
 		if plugin.LastResponseHeaders != nil {
 			for k, v := range resp.Header {
-				plugin.LastResponseHeaders[strings.ToLower(k)] = v[0]
+				plugin.LastResponseHeaders[strings.ToLower(k)] = strings.Join(v, ",")
 			}
 		}
 
