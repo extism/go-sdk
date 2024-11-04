@@ -10,13 +10,17 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 type CompiledPlugin struct {
-	runtime wazero.Runtime
-	main    wazero.CompiledModule
-	env     api.Module
+	runtime    wazero.Runtime
+	main       wazero.CompiledModule
+	extism     wazero.CompiledModule
+	env        api.Module
+	instanceMu sync.Mutex
+
 	// this is the raw wasm bytes of the provided module, it is required when using a tracing observeAdapter.
 	// If an adapter is not provided, this field will be nil.
 	wasmBytes      []byte
@@ -92,8 +96,14 @@ func NewCompiledPlugin(
 		}
 	}
 
-	// Build extism:host/env module
+	// Compile the extism module
 	var err error
+	p.extism, err = p.runtime.CompileModule(ctx, extismRuntimeWasm)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating extism module: %w", err)
+	}
+
+	// Build and instantiate extism:host/env module
 	p.env, err = instantiateEnvModule(ctx, p.runtime)
 	if err != nil {
 		return nil, err
@@ -206,7 +216,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	// to be anonymous -- you cannot instantiate multiple modules with the same name into the
 	// same runtime. It is okay that this is anonymous, because this module is only called
 	// from Go host functions and not from the Wasm module itself.
-	extism, err := p.runtime.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName(""))
+	extism, err := p.runtime.InstantiateModule(ctx, p.extism, wazero.NewModuleConfig())
 	if err != nil {
 		return nil, fmt.Errorf("instantiating extism module: %w", err)
 	}
