@@ -450,6 +450,7 @@ func (p *InstantiatedPlugin) Call(name string, data []byte) (uint32, []byte, err
 
 // Call a function by name with the given input and context, returning the output
 func (p *InstantiatedPlugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+	ctx = context.WithValue(ctx, PluginCtxKey("extism"), p.extism)
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, p.Timeout)

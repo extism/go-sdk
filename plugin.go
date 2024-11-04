@@ -6,6 +6,7 @@ import (
 	"fmt"
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strings"
@@ -15,6 +16,7 @@ import (
 type CompiledPlugin struct {
 	runtime wazero.Runtime
 	main    wazero.CompiledModule
+	env     api.Module
 	// this is the raw wasm bytes of the provided module, it is required when using a tracing observeAdapter.
 	// If an adapter is not provided, this field will be nil.
 	wasmBytes      []byte
@@ -88,6 +90,13 @@ func NewCompiledPlugin(
 		if err != nil {
 			return nil, fmt.Errorf("building host module: %w", err)
 		}
+	}
+
+	// Build extism:host/env module
+	var err error
+	p.env, err = instantiateEnvModule(ctx, p.runtime)
+	if err != nil {
+		return nil, err
 	}
 
 	// Try to find the main module:
@@ -192,17 +201,16 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		trace.Finish()
 	}
 
-	extism, err := p.runtime.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName("extism"))
+	// Compile and instantiate the extism runtime. This runtime is stateful and needs to be
+	// instantiated on a per-instance basis. We don't provide a name because the module needs
+	// to be anonymous -- you cannot instantiate multiple modules with the same name into the
+	// same runtime. It is okay that this is anonymous, because this module is only called
+	// from Go host functions and not from the Wasm module itself.
+	extism, err := p.runtime.InstantiateWithConfig(ctx, extismRuntimeWasm, wazero.NewModuleConfig().WithName(""))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("instantiating extism module: %w", err)
 	}
 	closers = append(closers, extism.Close)
-
-	env, err := buildEnvModule(ctx, p.runtime, extism)
-	if err != nil {
-		return nil, err
-	}
-	closers = append(closers, env.Close)
 
 	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
 	if err != nil {
