@@ -247,14 +247,25 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 	}
 }
 
-func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (api.Module, error) {
+func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) {
 	builder := rt.NewHostModuleBuilder("extism:host/env")
 
-	wrap := func(name string, params []ValueType, results []ValueType) {
-		f := extism.ExportedFunction(name)
+	// A wrapper that creates allows calls from guest -> go host -> extism kernel wasm
+	// See https://github.com/extism/proposals/blob/main/EIP-007-extism-runtime-kernel.md.
+	extismFunc := func(name string, params []ValueType, results []ValueType) {
 		builder.
 			NewFunctionBuilder().
 			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
+				extism, ok := ctx.Value(PluginCtxKey("extism")).(api.Module)
+				if !ok {
+					panic("Invalid context, `extism` key not found")
+				}
+
+				f := extism.ExportedFunction(name)
+				if f == nil {
+					panic(fmt.Errorf("function %q not found in extism:host", name))
+				}
+
 				err := f.CallWithStack(ctx, stack)
 				if err != nil {
 					panic(err)
@@ -263,24 +274,24 @@ func buildEnvModule(ctx context.Context, rt wazero.Runtime, extism api.Module) (
 			Export(name)
 	}
 
-	wrap("alloc", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("free", []ValueType{ValueTypeI64}, []ValueType{})
-	wrap("load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	wrap("input_load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
-	wrap("store_u64", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("store_u8", []ValueType{ValueTypeI64, ValueTypeI32}, []ValueType{})
-	wrap("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
-	wrap("input_length", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("output_length", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("length_unsafe", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
-	wrap("reset", []ValueType{}, []ValueType{})
-	wrap("error_set", []ValueType{ValueTypeI64}, []ValueType{})
-	wrap("error_get", []ValueType{}, []ValueType{ValueTypeI64})
-	wrap("memory_bytes", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("alloc", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	extismFunc("free", []ValueType{ValueTypeI64}, []ValueType{})
+	extismFunc("load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
+	extismFunc("input_load_u8", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI32})
+	extismFunc("store_u64", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	extismFunc("store_u8", []ValueType{ValueTypeI64, ValueTypeI32}, []ValueType{})
+	extismFunc("input_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	extismFunc("output_set", []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{})
+	extismFunc("input_length", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("input_offset", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("output_length", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("output_offset", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("length", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	extismFunc("length_unsafe", []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64})
+	extismFunc("reset", []ValueType{}, []ValueType{})
+	extismFunc("error_set", []ValueType{ValueTypeI64}, []ValueType{})
+	extismFunc("error_get", []ValueType{}, []ValueType{ValueTypeI64})
+	extismFunc("memory_bytes", []ValueType{}, []ValueType{ValueTypeI64})
 
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(api.GoModuleFunc(inputLoad_u64)), []ValueType{ValueTypeI64}, []ValueType{ValueTypeI64}).
@@ -582,7 +593,7 @@ func httpStatusCode(ctx context.Context, m api.Module) int32 {
 }
 
 func getLogLevel(ctx context.Context, m api.Module) int32 {
-	// if _, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+	// if _, ok := callCtx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
 	// 	panic("Invalid context, `plugin` key not found")
 	// }
 	return LogLevel(pluginLogLevel.Load()).ExtismCompat()
