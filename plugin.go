@@ -9,17 +9,23 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
+	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type CompiledPlugin struct {
-	runtime    wazero.Runtime
-	main       wazero.CompiledModule
-	extism     wazero.CompiledModule
-	env        api.Module
-	instanceMu sync.Mutex
+	runtime wazero.Runtime
+	main    wazero.CompiledModule
+	extism  wazero.CompiledModule
+	env     api.Module
+
+	// when a module (main) is instantiated, it may have a module name that's added
+	// to the data section of the wasm. If this is the case, we won't be able to
+	// instantiate that module more than once. This counter acts as the module name
+	// incrementing each time we instantiate the module.
+	instanceCount atomic.Uint64
 
 	// this is the raw wasm bytes of the provided module, it is required when using a tracing observeAdapter.
 	// If an adapter is not provided, this field will be nil.
@@ -177,6 +183,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
 	}
+	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
