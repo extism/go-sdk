@@ -38,7 +38,6 @@ type CompiledPlugin struct {
 	maxHttp                   int64
 	maxVar                    int64
 	enableHttpResponseHeaders bool
-	LastResponseHeaders       map[string]string
 }
 
 type PluginConfig struct {
@@ -46,14 +45,51 @@ type PluginConfig struct {
 	EnableWasi                bool
 	ObserveAdapter            *observe.AdapterBase
 	ObserveOptions            *observe.Options
-	HostFunctions             []HostFunction
 	EnableHttpResponseHeaders bool
+
+	// ModuleConfig is only used when a plugins are built using the NewPlugin
+	// function. In this function, the plugin is both compiled, and an instance
+	// of the plugin is instantiated, and the ModuleConfig is passed to the
+	// instance.
+	//
+	// When plugins are built using NewCompiledPlugin, the ModuleConfig has no
+	// effect because the instance is not created. Instead, the ModuleConfig is
+	// passed directly in calls to the CompiledPlugin.Instance method.
+	ModuleConfig wazero.ModuleConfig
 }
 
+// NewPlugin creates compiles and instantiates a plugin that is ready
+// to be used. Plugins are not thread-safe. If you need to use a plugin
+// across multiple goroutines, use NewCompiledPlugin and create instances
+// of the plugin using the CompiledPlugin.Instance method.
+func NewPlugin(
+	ctx context.Context,
+	manifest Manifest,
+	config PluginConfig,
+	functions []HostFunction,
+) (*Plugin, error) {
+	c, err := NewCompiledPlugin(ctx, manifest, config, functions)
+	if err != nil {
+		return nil, err
+	}
+	p, err := c.Instance(ctx, PluginInstanceConfig{
+		ModuleConfig: config.ModuleConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
+	p.close = append(p.close, c.Close)
+	return p, nil
+}
+
+// NewCompiledPlugin creates a compiled plugin that is ready to be instantiated.
+// You can instantiate the plugin multiple times using the CompiledPlugin.Instance
+// method and run those instances concurrently.
 func NewCompiledPlugin(
 	ctx context.Context,
 	manifest Manifest,
 	config PluginConfig,
+	funcs []HostFunction,
 ) (*CompiledPlugin, error) {
 	count := len(manifest.Wasm)
 	if count == 0 {
@@ -79,10 +115,11 @@ func NewCompiledPlugin(
 	}
 
 	p := CompiledPlugin{
-		manifest:       manifest,
-		runtime:        wazero.NewRuntimeWithConfig(ctx, cfg),
-		observeAdapter: config.ObserveAdapter,
-		observeOptions: config.ObserveOptions,
+		manifest:                  manifest,
+		runtime:                   wazero.NewRuntimeWithConfig(ctx, cfg),
+		observeAdapter:            config.ObserveAdapter,
+		observeOptions:            config.ObserveOptions,
+		enableHttpResponseHeaders: config.EnableHttpResponseHeaders,
 	}
 
 	if config.EnableWasi {
@@ -92,7 +129,7 @@ func NewCompiledPlugin(
 
 	// Build host modules
 	hostModules := make(map[string][]HostFunction)
-	for _, f := range config.HostFunctions {
+	for _, f := range funcs {
 		hostModules[f.Namespace] = append(hostModules[f.Namespace], f)
 	}
 	for name, funcs := range hostModules {
@@ -176,7 +213,7 @@ func (p *CompiledPlugin) Close(ctx context.Context) error {
 	return p.runtime.Close(ctx)
 }
 
-func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*InstantiatedPlugin, error) {
+func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Plugin, error) {
 	var closers []func(ctx context.Context) error
 
 	moduleConfig := config.ModuleConfig
@@ -249,7 +286,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if p.enableHttpResponseHeaders {
 		headers = map[string]string{}
 	}
-	instance := &InstantiatedPlugin{
+	instance := &Plugin{
 		close:                closers,
 		extism:               extism,
 		hasWasi:              p.hasWasi,

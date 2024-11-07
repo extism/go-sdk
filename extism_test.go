@@ -8,6 +8,7 @@ import (
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/experimental/logging"
@@ -15,6 +16,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -34,8 +36,8 @@ func TestWasmUrl(t *testing.T) {
 		AllowedPaths: make(map[string]string),
 	}
 
-	_, ok := plugin(t, manifest)
-	assert.True(t, ok, "InstantiatedPlugin must be succussfuly created")
+	_, ok := pluginInstance(t, manifest)
+	assert.True(t, ok, "Plugin must be succussfuly created")
 }
 
 func TestHashMismatch(t *testing.T) {
@@ -57,15 +59,15 @@ func TestHashMismatch(t *testing.T) {
 
 	_, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi: true,
-	})
+	}, nil)
 
-	assert.NotNil(t, err, "InstantiatedPlugin must fail")
+	assert.NotNil(t, err, "Plugin must fail")
 }
 
 func TestFunctionExsits(t *testing.T) {
 	manifest := manifest("alloc.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		assert.True(t, plugin.FunctionExists("run_test"))
@@ -76,7 +78,7 @@ func TestFunctionExsits(t *testing.T) {
 func TestFailOnUnknownFunction(t *testing.T) {
 	manifest := manifest("alloc.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		_, _, err := plugin.Call("i_dont_exist", []byte{})
@@ -87,7 +89,7 @@ func TestFailOnUnknownFunction(t *testing.T) {
 func TestCallFunction(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		cases := map[string]int{
@@ -110,10 +112,34 @@ func TestCallFunction(t *testing.T) {
 	}
 }
 
+func TestCallFunctionMultipleInstances(t *testing.T) {
+	ctx := context.Background()
+	manifest := manifest("alloc.wasm")
+	plugin := plugin(t, manifest)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			instance, err := plugin.Instance(ctx, PluginInstanceConfig{})
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, instance.Close(ctx))
+			}()
+
+			exit, _, err := instance.Call("run_test", []byte{})
+			assertCall(t, err, exit)
+		}()
+	}
+	wg.Wait()
+}
+
 func TestClosePlugin(t *testing.T) {
 	manifest := manifest("alloc.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 
 		exit, _, err := plugin.Call("run_test", []byte{})
 		assertCall(t, err, exit)
@@ -131,7 +157,7 @@ func TestClosePlugin(t *testing.T) {
 func TestAlloc(t *testing.T) {
 	manifest := manifest("alloc.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, _, err := plugin.Call("run_test", []byte{})
@@ -154,7 +180,7 @@ func TestConfig(t *testing.T) {
 			manifest.Config["thing"] = k
 		}
 
-		if plugin, ok := plugin(t, manifest); ok {
+		if plugin, ok := pluginInstance(t, manifest); ok {
 			defer plugin.Close(context.Background())
 
 			exit, output, err := plugin.Call("run_test", []byte{})
@@ -172,7 +198,7 @@ func TestConfig(t *testing.T) {
 func TestFail(t *testing.T) {
 	manifest := manifest("fail.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, _, err := plugin.Call("run_test", []byte{})
@@ -185,7 +211,7 @@ func TestFail(t *testing.T) {
 func TestHello(t *testing.T) {
 	manifest := manifest("hello.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("run_test", []byte{})
@@ -210,7 +236,7 @@ func TestExit(t *testing.T) {
 	for config, expected := range cases {
 		manifest := manifest("exit.wasm")
 
-		if plugin, ok := plugin(t, manifest); ok {
+		if plugin, ok := pluginInstance(t, manifest); ok {
 			defer plugin.Close(context.Background())
 
 			if config != "" {
@@ -243,7 +269,7 @@ func TestHost_simple(t *testing.T) {
 		[]ValueType{ValueTypePTR},
 	)
 
-	if plugin, ok := plugin(t, manifest, mult); ok {
+	if plugin, ok := pluginInstance(t, manifest, mult); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("run_test", []byte{})
@@ -287,7 +313,7 @@ func TestHost_memory(t *testing.T) {
 
 	mult.SetNamespace("host")
 
-	if plugin, ok := plugin(t, manifest, mult); ok {
+	if plugin, ok := pluginInstance(t, manifest, mult); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("run_test", []byte("Frodo"))
@@ -361,9 +387,8 @@ func TestHost_multiple(t *testing.T) {
 
 	ctx := context.Background()
 	p, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
-		EnableWasi:    true,
-		HostFunctions: hostFunctions,
-	})
+		EnableWasi: true,
+	}, hostFunctions)
 	if err != nil {
 		panic(err)
 	}
@@ -392,7 +417,7 @@ func TestHTTP_allowed(t *testing.T) {
 	manifest := manifest("http.wasm")
 	manifest.AllowedHosts = []string{"jsonplaceholder.*.com"}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("run_test", []byte{})
@@ -423,7 +448,7 @@ func TestHTTP_denied(t *testing.T) {
 			manifest.AllowedHosts = []string{url}
 		}
 
-		if plugin, ok := plugin(t, manifest); ok {
+		if plugin, ok := pluginInstance(t, manifest); ok {
 			defer plugin.Close(context.Background())
 
 			exit, _, err := plugin.Call("run_test", []byte{})
@@ -438,30 +463,23 @@ func TestHTTPHeaders_allowed(t *testing.T) {
 	manifest := manifest("http_headers.wasm")
 	manifest.AllowedHosts = []string{"extism.org"}
 
-	ctx := context.Background()
-	config := wasiPluginConfig()
-	config.EnableHttpResponseHeaders = true
+	if plugin, ok := pluginInstanceHttpHeaders(t, manifest); ok {
+		defer plugin.Close(context.Background())
 
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		t.Error(err)
-	}
+		req, _ := json.Marshal(map[string]string{
+			"url": "https://extism.org",
+		})
 
-	defer plugin.Close()
+		exit, output, err := plugin.Call("http_get", req)
 
-	req, _ := json.Marshal(map[string]string{
-		"url": "https://extism.org",
-	})
-
-	exit, output, err := plugin.Call("http_get", req)
-
-	if assertCall(t, err, exit) {
-		headers := map[string]string{}
-		err = json.Unmarshal(output, &headers)
-		if err != nil {
-			t.Error(err)
+		if assertCall(t, err, exit) {
+			headers := map[string]string{}
+			err = json.Unmarshal(output, &headers)
+			if err != nil {
+				t.Error(err)
+			}
+			assert.Equal(t, "text/html; charset=utf-8", headers["content-type"])
 		}
-		assert.Equal(t, "text/html; charset=utf-8", headers["content-type"])
 	}
 }
 
@@ -470,23 +488,20 @@ func TestHTTPHeaders_denied(t *testing.T) {
 	manifest.AllowedHosts = []string{"extism.org"}
 
 	ctx := context.Background()
-	config := wasiPluginConfig()
+	if plugin, ok := pluginInstance(t, manifest); ok {
 
-	plugin, err := NewPlugin(ctx, manifest, config, []HostFunction{})
-	if err != nil {
-		t.Error(err)
-	}
+		defer plugin.Close(ctx)
 
-	defer plugin.Close()
+		req, _ := json.Marshal(map[string]string{
+			"url": "https://extism.org",
+		})
 
-	req, _ := json.Marshal(map[string]string{
-		"url": "https://extism.org",
-	})
+		exit, output, err := plugin.Call("http_get", req)
 
-	exit, output, err := plugin.Call("http_get", req)
+		if assertCall(t, err, exit) {
+			assert.Equal(t, output, []byte("{}"))
 
-	if assertCall(t, err, exit) {
-		assert.Equal(t, output, []byte("{}"))
+		}
 	}
 }
 
@@ -499,7 +514,7 @@ func TestLog_default(t *testing.T) {
 		log.SetOutput(os.Stderr)
 	}()
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		SetLogLevel(LogLevelWarn) // Only warn and error logs should be printed to the console
@@ -524,7 +539,7 @@ func TestLog_custom(t *testing.T) {
 		level   LogLevel
 	}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		var actual strings.Builder
@@ -602,7 +617,7 @@ func TestTimeout(t *testing.T) {
 		EnableWasi: true,
 	}
 
-	plugin, err := NewCompiledPlugin(context.Background(), manifest, config)
+	plugin, err := NewCompiledPlugin(context.Background(), manifest, config, nil)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -628,7 +643,7 @@ func TestCancel(t *testing.T) {
 	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
 		EnableWasi:    true,
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
-	})
+	}, nil)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -656,7 +671,7 @@ func TestCancel(t *testing.T) {
 func TestVar(t *testing.T) {
 	manifest := manifest("var.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		plugin.Var["a"] = uintToLEBytes(10)
@@ -686,7 +701,7 @@ func TestNoVars(t *testing.T) {
 	manifest := manifest("var.wasm")
 	manifest.Memory = &ManifestMemory{MaxVarBytes: 0}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		plugin.Var["a"] = uintToLEBytes(10)
@@ -706,7 +721,7 @@ func TestFS(t *testing.T) {
 		"testdata": "/mnt",
 	}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("run_test", []byte{})
@@ -726,7 +741,7 @@ func TestReadOnlyMount(t *testing.T) {
 		"ro:testdata": "/mnt",
 	}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 		plugin.Config["path"] = "/mnt/test.txt"
 
@@ -749,7 +764,7 @@ func TestReadOnlyMount(t *testing.T) {
 func TestCountVowels(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output, err := plugin.Call("count_vowels", []byte("hello world"))
@@ -768,7 +783,7 @@ func TestCountVowels(t *testing.T) {
 func TestMultipleCallsOutput(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, output1, err := plugin.Call("count_vowels", []byte("aaa"))
@@ -797,7 +812,7 @@ func TestHelloHaskell(t *testing.T) {
 
 	manifest := manifest("hello_haskell.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		SetLogLevel(LogLevelTrace)
@@ -844,7 +859,7 @@ func TestJsonManifest(t *testing.T) {
 		t.Error(err)
 	}
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		exit, _, err := plugin.Call("run_test", []byte{})
@@ -857,7 +872,7 @@ func TestJsonManifest(t *testing.T) {
 func TestInputOffset(t *testing.T) {
 	manifest := manifest("input_offset.wasm")
 
-	if plugin, ok := plugin(t, manifest); ok {
+	if plugin, ok := pluginInstance(t, manifest); ok {
 		defer plugin.Close(context.Background())
 
 		input_data := []byte("hello world")
@@ -889,8 +904,8 @@ func TestObserve(t *testing.T) {
 		},
 	}
 
-	// InstantiatedPlugin 1
-	plugin, err := NewCompiledPlugin(ctx, manifest, config)
+	// Plugin 1
+	plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -927,8 +942,8 @@ func TestObserve(t *testing.T) {
 	// Reset underlying buffer
 	buf.Reset()
 
-	// InstantiatedPlugin 2
-	plugin2, err := NewCompiledPlugin(ctx, manifest, config)
+	// Plugin 2
+	plugin2, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -966,7 +981,7 @@ func TestContextCancel(t *testing.T) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	}
 
-	plugin, err := NewCompiledPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -1000,7 +1015,7 @@ func TestEnableExperimentalFeature(t *testing.T) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	}
 
-	plugin, err := NewCompiledPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
 	}
@@ -1039,7 +1054,7 @@ func BenchmarkInitialize(b *testing.B) {
 				RuntimeConfig: wazero.NewRuntimeConfig(),
 			}
 
-			plugin, err := NewCompiledPlugin(ctx, manifest, config)
+			plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 			if err != nil {
 				panic(err)
 			}
@@ -1070,7 +1085,7 @@ func BenchmarkInitializeWithCache(b *testing.B) {
 				RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 			}
 
-			plugin, err := NewCompiledPlugin(ctx, manifest, config)
+			plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 			if err != nil {
 				panic(err)
 			}
@@ -1097,7 +1112,7 @@ func BenchmarkNoop(b *testing.B) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
-	plugin, err := NewCompiledPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -1156,7 +1171,7 @@ func BenchmarkReplace(b *testing.B) {
 		RuntimeConfig: wazero.NewRuntimeConfig().WithCompilationCache(cache),
 	}
 
-	plugin, err := NewCompiledPlugin(ctx, manifest, config)
+	plugin, err := NewCompiledPlugin(ctx, manifest, config, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -1232,14 +1247,13 @@ func manifest(name string) Manifest {
 	return manifest
 }
 
-func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*InstantiatedPlugin, bool) {
+func pluginInstance(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Plugin, bool) {
 	ctx := context.Background()
 	config := wasiPluginConfig()
 
 	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
-		EnableWasi:    true,
-		HostFunctions: funcs,
-	})
+		EnableWasi: true,
+	}, funcs)
 
 	if err != nil {
 		t.Errorf("Could not create plugin: %v", err)
@@ -1253,6 +1267,39 @@ func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Instantiat
 	}
 
 	return instance, true
+}
+
+func pluginInstanceHttpHeaders(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Plugin, bool) {
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi:                true,
+		EnableHttpResponseHeaders: true,
+	}, funcs)
+
+	if err != nil {
+		t.Errorf("Could not create plugin: %v", err)
+		return nil, false
+	}
+
+	instance, err := plugin.Instance(ctx, config)
+	if err != nil {
+		t.Errorf("Could not create plugin instance: %v", err)
+		return nil, false
+	}
+
+	return instance, true
+}
+
+func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) *CompiledPlugin {
+	ctx := context.Background()
+	p, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi:    true,
+		RuntimeConfig: wazero.NewRuntimeConfigCompiler(),
+	}, funcs)
+	require.NoError(t, err)
+	return p
 }
 
 func assertCall(t *testing.T, err error, exit uint32) bool {
