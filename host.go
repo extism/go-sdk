@@ -101,10 +101,10 @@ func NewHostFunctionWithStack(
 }
 
 type CurrentPlugin struct {
-	plugin *InstantiatedPlugin
+	plugin *Plugin
 }
 
-func (p *InstantiatedPlugin) currentPlugin() *CurrentPlugin {
+func (p *Plugin) currentPlugin() *CurrentPlugin {
 	return &CurrentPlugin{p}
 }
 
@@ -237,7 +237,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		closure := f.stackCallback
 
 		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
-			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return
 			}
@@ -318,7 +318,7 @@ func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, e
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
-			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 				if LogLevel(pluginLogLevel.Load()) > level {
 					plugin.currentPlugin().Free(offset)
 					return
@@ -350,7 +350,7 @@ func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, e
 }
 
 func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -364,7 +364,7 @@ func store_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -376,7 +376,7 @@ func load_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
-	p, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin)
+	p, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context")
 	}
@@ -393,7 +393,7 @@ func inputLoad_u64(ctx context.Context, mod api.Module, stack []uint64) {
 }
 
 func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
@@ -419,7 +419,7 @@ func configGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		name, err := cp.ReadString(offset)
@@ -447,7 +447,7 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 }
 
 func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
-	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin)
+	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
 	if !ok {
 		panic("Invalid context, `plugin` key not found")
 	}
@@ -494,7 +494,7 @@ func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset ui
 }
 
 func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOffset uint64) uint64 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		cp := plugin.currentPlugin()
 
 		requestJson, err := cp.ReadBytes(requestOffset)
@@ -585,7 +585,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 }
 
 func httpStatusCode(ctx context.Context, m api.Module) int32 {
-	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*InstantiatedPlugin); ok {
+	if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 		return int32(plugin.LastStatusCode)
 	}
 

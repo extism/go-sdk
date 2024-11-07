@@ -1176,7 +1176,7 @@ func manifest(name string) Manifest {
 	return manifest
 }
 
-func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*InstantiatedPlugin, bool) {
+func plugin(t *testing.T, manifest Manifest, funcs ...HostFunction) (*Plugin, bool) {
 	ctx := context.Background()
 	config := wasiPluginConfig()
 

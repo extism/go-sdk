@@ -173,7 +173,7 @@ func (p *CompiledPlugin) Close(ctx context.Context) error {
 	return p.runtime.Close(ctx)
 }
 
-func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*InstantiatedPlugin, error) {
+func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Plugin, error) {
 	var closers []func(ctx context.Context) error
 
 	moduleConfig := config.ModuleConfig
@@ -242,7 +242,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		p.maxVar = p.manifest.Memory.MaxVarBytes
 	}
 
-	instance := &InstantiatedPlugin{
+	instance := &Plugin{
 		close:                closers,
 		extism:               extism,
 		hasWasi:              p.hasWasi,
@@ -262,4 +262,21 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	}
 	instance.guestRuntime = detectGuestRuntime(ctx, instance)
 	return instance, nil
+}
+
+func NewPlugin(
+	ctx context.Context,
+	manifest Manifest,
+	config PluginConfig,
+	functions []HostFunction,
+) (*Plugin, error) {
+	if config.HostFunctions == nil {
+		config.HostFunctions = []HostFunction{}
+	}
+	config.HostFunctions = append(config.HostFunctions, functions...)
+	c, err := NewCompiledPlugin(ctx, manifest, config)
+	if err != nil {
+		return nil, err
+	}
+	return c.Instance(ctx, PluginInstanceConfig{})
 }
