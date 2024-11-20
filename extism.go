@@ -533,7 +533,12 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 
 	output, err := p.GetOutputWithContext(ctx)
 	if err != nil {
-		return rc, []byte{}, errors.Join(returnErr, fmt.Errorf("failed to get output: %v", err))
+		e := fmt.Errorf("failed to get output: %v", err)
+		if returnErr != nil {
+			return rc, []byte{}, errors.Join(returnErr, e)
+		} else {
+			return rc, []byte{}, e
+		}
 	}
 
 	return rc, output, returnErr
