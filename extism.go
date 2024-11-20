@@ -525,20 +525,18 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 		return rc, []byte{}, err
 	}
 
-	if rc != 0 {
-		errMsg := p.GetError()
-		if errMsg == "" {
-			errMsg = "encountered an unknown error in call to Extism p function " + name
-		}
-		return rc, []byte{}, errors.New(errMsg)
+	var returnErr error = nil
+	errMsg := p.GetErrorWithContext(ctx)
+	if errMsg != "" {
+		returnErr = errors.New(errMsg)
 	}
 
-	output, err := p.GetOutput()
+	output, err := p.GetOutputWithContext(ctx)
 	if err != nil {
-		return rc, []byte{}, fmt.Errorf("failed to get output: %v", err)
+		return rc, []byte{}, errors.Join(returnErr, fmt.Errorf("failed to get output: %v", err))
 	}
 
-	return rc, output, nil
+	return rc, output, returnErr
 }
 
 func calculateHash(data []byte) string {
