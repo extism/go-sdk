@@ -110,12 +110,10 @@ type Plugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
-	//Runtime *Runtime
-	//Main    Module
-	module  api.Module
-	Timeout time.Duration
-	Config  map[string]string
-	// NOTE: maybe we can have some nice methods for getting/setting vars
+	hostFuncError        error
+	module               api.Module
+	Timeout              time.Duration
+	Config               map[string]string
 	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string

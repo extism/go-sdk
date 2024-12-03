@@ -259,11 +259,12 @@ func TestHost_simple(t *testing.T) {
 
 	mult := NewHostFunctionWithStack(
 		"mult",
-		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) error {
 			a := DecodeI32(stack[0])
 			b := DecodeI32(stack[1])
 
 			stack[0] = EncodeI32(a * b)
+			return nil
 		},
 		[]ValueType{ValueTypePTR, ValueTypePTR},
 		[]ValueType{ValueTypePTR},
@@ -288,7 +289,7 @@ func TestHost_memory(t *testing.T) {
 
 	mult := NewHostFunctionWithStack(
 		"to_upper",
-		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) error {
 			offset := stack[0]
 			buffer, err := plugin.ReadBytes(offset)
 			if err != nil {
@@ -306,6 +307,7 @@ func TestHost_memory(t *testing.T) {
 			}
 
 			stack[0] = offset
+			return nil
 		},
 		[]ValueType{ValueTypePTR},
 		[]ValueType{ValueTypePTR},
@@ -332,7 +334,7 @@ func TestHost_multiple(t *testing.T) {
 
 	green_message := NewHostFunctionWithStack(
 		"hostGreenMessage",
-		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) error {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)
 
@@ -350,6 +352,7 @@ func TestHost_multiple(t *testing.T) {
 			}
 
 			stack[0] = offset
+			return nil
 		},
 		[]ValueType{ValueTypePTR},
 		[]ValueType{ValueTypePTR},
@@ -357,7 +360,7 @@ func TestHost_multiple(t *testing.T) {
 
 	purple_message := NewHostFunctionWithStack(
 		"hostPurpleMessage",
-		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) error {
 			offset := stack[0]
 			input, err := plugin.ReadString(offset)
 
@@ -375,6 +378,7 @@ func TestHost_multiple(t *testing.T) {
 			}
 
 			stack[0] = offset
+			return nil
 		},
 		[]ValueType{ValueTypePTR},
 		[]ValueType{ValueTypePTR},
