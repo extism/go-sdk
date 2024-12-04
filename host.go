@@ -109,9 +109,9 @@ func (p *Plugin) currentPlugin() *CurrentPlugin {
 	return &CurrentPlugin{p}
 }
 
-// SetHostFunctionError allows the host function to set an error that will be
+// SetError allows the host function to set an error that will be
 // gracefully returned by extism guest modules.
-func (p *CurrentPlugin) SetHostFunctionError(ctx context.Context, err error) {
+func (p *CurrentPlugin) SetError(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
@@ -255,7 +255,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 		// See: https://github.com/extism/go-sdk/issues/5#issuecomment-1666774486
 		closure := f.stackCallback
 
-		builder.NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
+		builder.NewFunctionBuilder().WithGoFunction(api.GoFunc(func(ctx context.Context, stack []uint64) {
 			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
 				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return

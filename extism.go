@@ -110,7 +110,6 @@ type Plugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
-	hostFuncError        error
 	module               api.Module
 	Timeout              time.Duration
 	Config               map[string]string
