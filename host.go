@@ -56,7 +56,7 @@ const (
 //
 // To safely decode/encode values from/to the uint64 inputs/ouputs, users are encouraged to use
 // Extism's EncodeXXX or DecodeXXX functions.
-type HostFunctionStackCallback func(ctx context.Context, p *CurrentPlugin, stack []uint64) error
+type HostFunctionStackCallback func(ctx context.Context, p *CurrentPlugin, stack []uint64)
 
 // HostFunction represents a custom function defined by the host.
 type HostFunction struct {
@@ -107,6 +107,24 @@ type CurrentPlugin struct {
 
 func (p *Plugin) currentPlugin() *CurrentPlugin {
 	return &CurrentPlugin{p}
+}
+
+// SetHostFunctionError allows the host function to set an error that will be
+// gracefully returned by extism guest modules.
+func (p *CurrentPlugin) SetHostFunctionError(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+
+	offset, err := p.WriteString(err.Error())
+	if err != nil {
+		panic(fmt.Sprintf("failed to write error message to memory: %v", err))
+	}
+
+	_, err = p.plugin.extism.ExportedFunction("error_set").Call(ctx, offset)
+	if err != nil {
+		panic(fmt.Sprintf("failed to set error: %v", err))
+	}
 }
 
 func (p *CurrentPlugin) Log(level LogLevel, message string) {
@@ -239,9 +257,7 @@ func defineCustomHostFunctions(builder wazero.HostModuleBuilder, funcs []HostFun
 
 		builder.NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, m api.Module, stack []uint64) {
 			if plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin); ok {
-				if err := closure(ctx, &CurrentPlugin{plugin}, stack); err != nil {
-					plugin.hostFuncError = err
-				}
+				closure(ctx, &CurrentPlugin{plugin}, stack)
 				return
 			}
 
@@ -319,7 +335,6 @@ func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, e
 	hostFunc("http_status_code", httpStatusCode)
 	hostFunc("http_headers", httpHeaders)
 	hostFunc("get_log_level", getLogLevel)
-	hostFunc("host_func_get_error", hostFuncGetError)
 
 	logFunc := func(name string, level LogLevel) {
 		hostFunc(name, func(ctx context.Context, m api.Module, offset uint64) {
@@ -449,24 +464,6 @@ func varGet(ctx context.Context, m api.Module, offset uint64) uint64 {
 	}
 
 	panic("Invalid context, `plugin` key not found")
-}
-
-func hostFuncGetError(ctx context.Context, m api.Module) uint64 {
-	plugin, ok := ctx.Value(PluginCtxKey("plugin")).(*Plugin)
-	if !ok {
-		panic("Invalid context, `plugin` key not found")
-	}
-	cp := plugin.currentPlugin()
-
-	if plugin.hostFuncError == nil {
-		return 0
-	}
-
-	offset, err := cp.WriteString(plugin.hostFuncError.Error())
-	if err != nil {
-		panic(fmt.Errorf("failed to write host func error to memory: %v", err))
-	}
-	return offset
 }
 
 func varSet(ctx context.Context, m api.Module, nameOffset uint64, valueOffset uint64) {
