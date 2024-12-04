@@ -1,6 +1,7 @@
 package extism
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -432,6 +433,12 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 	}
 
 	mem, _ := p.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
+	if len(mem) < 2 {
+		return ""
+	}
+	if bytes.Equal(mem[:2], []byte{0xff, 0xff}) {
+		return ""
+	}
 	return string(mem)
 }
 
