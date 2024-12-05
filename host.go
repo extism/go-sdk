@@ -116,8 +116,7 @@ func (p *CurrentPlugin) SetError(ctx context.Context, err error) {
 		return
 	}
 
-	b := []byte(err.Error())
-	offset, err := p.WriteBytes(append([]byte{0xff, 0xff}, b...))
+	offset, err := p.WriteBytes(newHostFuncError(err).bytes())
 	if err != nil {
 		panic(fmt.Sprintf("failed to write error message to memory: %v", err))
 	}

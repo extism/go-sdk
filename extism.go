@@ -1,7 +1,6 @@
 package extism
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -433,12 +432,15 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 	}
 
 	mem, _ := p.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
-	if len(mem) < 2 {
+
+	// A host function error is an error set by a host function during a guest->host function
+	// call. These errors are intended to be handled only by the guest. If the error makes it
+	// back here, the guest PDK most likely doesn't know to handle it, in which case we should
+	// ignore it here.
+	if isHostFuncError(mem) {
 		return ""
 	}
-	if bytes.Equal(mem[:2], []byte{0xff, 0xff}) {
-		return ""
-	}
+
 	return string(mem)
 }
 
