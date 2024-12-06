@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/dylibso/observe-sdk/go/adapter/stdout"
@@ -1036,6 +1037,54 @@ func TestEnableExperimentalFeature(t *testing.T) {
 		assert.NotEmpty(t, buf.String())
 		assert.Empty(t, buf2.String())
 	}
+}
+
+// This test creates host functions that set errors. Previously, host functions
+// would have to panic to communicate host function errors, but this unfortunately
+// stopped execution of the guest function. In other words, there was no way to
+// gracefully communicate errors from host->guest when the guest called a host
+// function. This has since been fixed and this test proves that even when guests
+// don't reset the error state, the host can still determine that the current error
+// state was a host->guest error and not a guest->host error and ignores it.
+func TestHostFunctionError(t *testing.T) {
+	manifest := manifest("host_multiple.wasm")
+
+	hostGreenMessage := NewHostFunctionWithStack(
+		"hostGreenMessage",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+			plugin.SetError(ctx, errors.New("this is an error"))
+		},
+		[]ValueType{ValueTypePTR},
+		[]ValueType{ValueTypePTR},
+	)
+	hostPurpleMessage := NewHostFunctionWithStack(
+		"hostPurpleMessage",
+		func(ctx context.Context, plugin *CurrentPlugin, stack []uint64) {
+			plugin.SetError(ctx, errors.New("this is an error"))
+		},
+		[]ValueType{ValueTypePTR},
+		[]ValueType{ValueTypePTR},
+	)
+
+	ctx := context.Background()
+	p, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	}, []HostFunction{
+		hostGreenMessage,
+		hostPurpleMessage,
+	})
+	require.NoError(t, err)
+
+	pluginInst, err := p.Instance(ctx, PluginInstanceConfig{
+		ModuleConfig: wazero.NewModuleConfig().WithSysWalltime(),
+	})
+	require.NoError(t, err)
+
+	_, _, err = pluginInst.Call(
+		"say_green",
+		[]byte("John Doe"),
+	)
+	require.NoError(t, err, "the host function should have returned an error to the guest but it should not have propagated back to the host")
 }
 
 func BenchmarkInitialize(b *testing.B) {

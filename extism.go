@@ -110,12 +110,9 @@ type Plugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
-	//Runtime *Runtime
-	//Main    Module
-	module  api.Module
-	Timeout time.Duration
-	Config  map[string]string
-	// NOTE: maybe we can have some nice methods for getting/setting vars
+	module               api.Module
+	Timeout              time.Duration
+	Config               map[string]string
 	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
@@ -435,6 +432,15 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 	}
 
 	mem, _ := p.Memory().Read(uint32(errOffs[0]), uint32(errLen[0]))
+
+	// A host function error is an error set by a host function during a guest->host function
+	// call. These errors are intended to be handled only by the guest. If the error makes it
+	// back here, the guest PDK most likely doesn't know to handle it, in which case we should
+	// ignore it here.
+	if isHostFuncError(mem) {
+		return ""
+	}
+
 	return string(mem)
 }
 

@@ -109,6 +109,24 @@ func (p *Plugin) currentPlugin() *CurrentPlugin {
 	return &CurrentPlugin{p}
 }
 
+// SetError allows the host function to set an error that will be
+// gracefully returned by extism guest modules.
+func (p *CurrentPlugin) SetError(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+
+	offset, err := p.WriteBytes(newHostFuncError(err).bytes())
+	if err != nil {
+		panic(fmt.Sprintf("failed to write error message to memory: %v", err))
+	}
+
+	_, err = p.plugin.extism.ExportedFunction("error_set").Call(ctx, offset)
+	if err != nil {
+		panic(fmt.Sprintf("failed to set error: %v", err))
+	}
+}
+
 func (p *CurrentPlugin) Log(level LogLevel, message string) {
 	p.plugin.Log(level, message)
 }
@@ -306,7 +324,7 @@ func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) (api.Module, e
 		WithGoModuleFunction(api.GoModuleFunc(store_u64), []ValueType{ValueTypeI64, ValueTypeI64}, []ValueType{}).
 		Export("store_u64")
 
-	hostFunc := func(name string, f interface{}) {
+	hostFunc := func(name string, f any) {
 		builder.NewFunctionBuilder().WithFunc(f).Export(name)
 	}
 

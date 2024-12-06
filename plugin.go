@@ -2,6 +2,7 @@ package extism
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	observe "github.com/dylibso/observe-sdk/go"
@@ -220,7 +221,12 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
 	}
-	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
+	moduleConfig = moduleConfig.
+		WithName(strconv.Itoa(int(p.instanceCount.Add(1)))).
+		// We can tell the guest module what the error prefix will be for errors that are set
+		// by host functions. Guests should trim this prefix off of their error messages when
+		// reading them.
+		WithEnv("EXTISM_HOST_FUNC_ERROR_PREFIX", base64.StdEncoding.EncodeToString(errPrefix))
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
