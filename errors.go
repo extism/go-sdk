@@ -1,5 +1,7 @@
 package extism
 
+import "bytes"
+
 // errPrefix is a sentinel byte sequence used to identify errors originating from host functions.
 // It helps distinguish these errors when serialized to bytes.
 var errPrefix = []byte{0xFF, 0xFE, 0xFD}
@@ -58,10 +60,7 @@ func isHostFuncError(error []byte) bool {
 	if len(error) < len(errPrefix) {
 		return false // The slice is too short to contain the prefix.
 	}
-	// Check if the slice starts with the sentinel prefix.
-	return error[0] == errPrefix[0] &&
-		error[1] == errPrefix[1] &&
-		error[2] == errPrefix[2]
+	return bytes.Equal(error[:len(errPrefix)], errPrefix)
 }
 
 // newHostFuncError creates a new hostFuncError instance wrapping the provided error.
