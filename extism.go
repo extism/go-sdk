@@ -45,7 +45,14 @@ type Runtime struct {
 
 // PluginInstanceConfig contains configuration options for the Extism plugin.
 type PluginInstanceConfig struct {
+	// ModuleConfig allows the user to specify some custom module configuration.
+	//
+	// NOTE: unless ModuleConfigBypassManifest is true changes to FS, StartFunctions and Stdout/Stderr will (may) be
+	// ignored, as they are set by the manifest or environment variables.
 	ModuleConfig wazero.ModuleConfig
+	// ModuleConfigBypassManifest allows bypassing the manifest configuration to allow the user to have full control
+	// over the module configuration. Has effect only if ModuleConfig is set.
+	ModuleConfigBypassManifest bool
 }
 
 // HttpRequest represents an HTTP request to be made by the plugin.
@@ -110,8 +117,8 @@ type Plugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
 
-	//Runtime *Runtime
-	//Main    Module
+	// Runtime *Runtime
+	// Main    Module
 	module  api.Module
 	Timeout time.Duration
 	Config  map[string]string

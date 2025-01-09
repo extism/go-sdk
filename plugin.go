@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	observe "github.com/dylibso/observe-sdk/go"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	observe "github.com/dylibso/observe-sdk/go"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 type CompiledPlugin struct {
@@ -55,7 +56,13 @@ type PluginConfig struct {
 	// When plugins are built using NewCompiledPlugin, the ModuleConfig has no
 	// effect because the instance is not created. Instead, the ModuleConfig is
 	// passed directly in calls to the CompiledPlugin.Instance method.
+	//
+	// NOTE: unless ModuleConfigBypassManifest is true changes to FS, StartFunctions and Stdout/Stderr will (may) be
+	// ignored, as they are set by the manifest or environment variables.
 	ModuleConfig wazero.ModuleConfig
+	// ModuleConfigBypassManifest allows bypassing the manifest configuration to allow the user to have full control
+	// over the module configuration. Has effect only if ModuleConfig is set.
+	ModuleConfigBypassManifest bool
 }
 
 // NewPlugin creates compiles and instantiates a plugin that is ready
@@ -73,7 +80,8 @@ func NewPlugin(
 		return nil, err
 	}
 	p, err := c.Instance(ctx, PluginInstanceConfig{
-		ModuleConfig: config.ModuleConfig,
+		ModuleConfig:               config.ModuleConfig,
+		ModuleConfigBypassManifest: config.ModuleConfigBypassManifest,
 	})
 	if err != nil {
 		return nil, err
@@ -219,29 +227,32 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	moduleConfig := config.ModuleConfig
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
+		config.ModuleConfigBypassManifest = false
 	}
 	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
 
-	// NOTE: this is only necessary for guest modules because
-	// host modules have the same access privileges as the host itself
-	fs := wazero.NewFSConfig()
-	for host, guest := range p.manifest.AllowedPaths {
-		if strings.HasPrefix(host, "ro:") {
-			trimmed := strings.TrimPrefix(host, "ro:")
-			fs = fs.WithReadOnlyDirMount(trimmed, guest)
-		} else {
-			fs = fs.WithDirMount(host, guest)
+	if !config.ModuleConfigBypassManifest {
+		// NOTE: this is only necessary for guest modules because
+		// host modules have the same access privileges as the host itself
+		fs := wazero.NewFSConfig()
+		for host, guest := range p.manifest.AllowedPaths {
+			if strings.HasPrefix(host, "ro:") {
+				trimmed := strings.TrimPrefix(host, "ro:")
+				fs = fs.WithReadOnlyDirMount(trimmed, guest)
+			} else {
+				fs = fs.WithDirMount(host, guest)
+			}
 		}
-	}
 
-	// NOTE: we don't want wazero to call the start function, we will initialize
-	// the guest runtime manually.
-	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
-	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
+		// NOTE: we don't want wazero to call the start function, we will initialize
+		// the guest runtime manually.
+		// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
+		moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
 
-	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
-	if p.hasWasi && wasiOutput {
-		moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
+		_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
+		if p.hasWasi && wasiOutput {
+			moduleConfig = moduleConfig.WithStderr(os.Stderr).WithStdout(os.Stdout)
+		}
 	}
 
 	var trace *observe.TraceCtx
