@@ -56,6 +56,10 @@ type PluginConfig struct {
 	// When plugins are built using NewCompiledPlugin, the ModuleConfig has no
 	// effect because the instance is not created. Instead, the ModuleConfig is
 	// passed directly in calls to the CompiledPlugin.Instance method.
+	//
+	// NOTE: Module name and start functions are ignored as they are overridden by Extism, also if Manifest contains
+	// non-empty AllowedPaths, then FS is also ignored. If EXTISM_ENABLE_WASI_OUTPUT is set, then stdout and stderr are
+	// set to os.Stdout and os.Stderr respectively (ignoring user defined module config).
 	ModuleConfig wazero.ModuleConfig
 }
 
