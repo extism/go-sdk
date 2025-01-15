@@ -1,18 +1,20 @@
+// new
 package extism
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	observe "github.com/dylibso/observe-sdk/go"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	observe "github.com/dylibso/observe-sdk/go"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 type CompiledPlugin struct {
@@ -20,6 +22,7 @@ type CompiledPlugin struct {
 	main    wazero.CompiledModule
 	extism  wazero.CompiledModule
 	env     api.Module
+	modules map[string]wazero.CompiledModule
 
 	// when a module (main) is instantiated, it may have a module name that's added
 	// to the data section of the wasm. If this is the case, we won't be able to
@@ -120,6 +123,7 @@ func NewCompiledPlugin(
 		observeAdapter:            config.ObserveAdapter,
 		observeOptions:            config.ObserveOptions,
 		enableHttpResponseHeaders: config.EnableHttpResponseHeaders,
+		modules:                   make(map[string]wazero.CompiledModule),
 	}
 
 	if config.EnableWasi {
@@ -158,19 +162,18 @@ func NewCompiledPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
-	modules := map[string]wazero.CompiledModule{}
 	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		_, mainExists := modules["main"]
+		_, mainExists := p.modules["main"]
 		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
 			data.Name = "main"
 		}
 
-		_, okm := modules[data.Name]
+		_, okm := p.modules[data.Name]
 
 		if data.Name == "extism:host/env" || okm {
 			return nil, fmt.Errorf("module name collision: '%s'", data.Name)
@@ -194,7 +197,7 @@ func NewCompiledPlugin(
 		if data.Name == "main" {
 			p.main = m
 		} else {
-			modules[data.Name] = m
+			p.modules[data.Name] = m
 		}
 	}
 
@@ -251,8 +254,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Observe Adapter: %v", err)
 		}
-
-		trace.Finish()
 	}
 
 	// Compile and instantiate the extism runtime. This runtime is stateful and needs to be
@@ -265,6 +266,20 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		return nil, fmt.Errorf("instantiating extism module: %w", err)
 	}
 	closers = append(closers, extism.Close)
+
+	// Instantiate all non-main modules first
+	instancedModules := make(map[string]api.Module)
+	for name, module := range p.modules {
+		instance, err := p.runtime.InstantiateModule(ctx, module, moduleConfig.WithName(name))
+		if err != nil {
+			for _, m := range instancedModules {
+				m.Close(ctx)
+			}
+			return nil, fmt.Errorf("instantiating module %s: %w", name, err)
+		}
+		instancedModules[name] = instance
+		closers = append(closers, instance.Close)
+	}
 
 	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
 	if err != nil {
