@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	observe "github.com/dylibso/observe-sdk/go"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	observe "github.com/dylibso/observe-sdk/go"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 type CompiledPlugin struct {
@@ -55,6 +56,10 @@ type PluginConfig struct {
 	// When plugins are built using NewCompiledPlugin, the ModuleConfig has no
 	// effect because the instance is not created. Instead, the ModuleConfig is
 	// passed directly in calls to the CompiledPlugin.Instance method.
+	//
+	// NOTE: Module name and start functions are ignored as they are overridden by Extism, also if Manifest contains
+	// non-empty AllowedPaths, then FS is also ignored. If EXTISM_ENABLE_WASI_OUTPUT is set, then stdout and stderr are
+	// set to os.Stdout and os.Stderr respectively (ignoring user defined module config).
 	ModuleConfig wazero.ModuleConfig
 }
 
@@ -96,27 +101,25 @@ func NewCompiledPlugin(
 		return nil, fmt.Errorf("manifest can't be empty")
 	}
 
-	var cfg wazero.RuntimeConfig
-	if config.RuntimeConfig == nil {
-		cfg = wazero.NewRuntimeConfig()
-	} else {
-		cfg = config.RuntimeConfig
+	runtimeConfig := config.RuntimeConfig
+	if runtimeConfig == nil {
+		runtimeConfig = wazero.NewRuntimeConfig()
 	}
 
 	// Make sure function calls are cancelled if the context is cancelled
 	if manifest.Timeout > 0 {
-		cfg = cfg.WithCloseOnContextDone(true)
+		runtimeConfig = runtimeConfig.WithCloseOnContextDone(true)
 	}
 
 	if manifest.Memory != nil {
 		if manifest.Memory.MaxPages > 0 {
-			cfg = cfg.WithMemoryLimitPages(manifest.Memory.MaxPages)
+			runtimeConfig = runtimeConfig.WithMemoryLimitPages(manifest.Memory.MaxPages)
 		}
 	}
 
 	p := CompiledPlugin{
 		manifest:                  manifest,
-		runtime:                   wazero.NewRuntimeWithConfig(ctx, cfg),
+		runtime:                   wazero.NewRuntimeWithConfig(ctx, runtimeConfig),
 		observeAdapter:            config.ObserveAdapter,
 		observeOptions:            config.ObserveOptions,
 		enableHttpResponseHeaders: config.EnableHttpResponseHeaders,
@@ -220,24 +223,28 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
 	}
-	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
 
-	// NOTE: this is only necessary for guest modules because
-	// host modules have the same access privileges as the host itself
-	fs := wazero.NewFSConfig()
-	for host, guest := range p.manifest.AllowedPaths {
-		if strings.HasPrefix(host, "ro:") {
-			trimmed := strings.TrimPrefix(host, "ro:")
-			fs = fs.WithReadOnlyDirMount(trimmed, guest)
-		} else {
-			fs = fs.WithDirMount(host, guest)
-		}
-	}
+	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
 
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
-	moduleConfig = moduleConfig.WithStartFunctions().WithFSConfig(fs)
+	moduleConfig = moduleConfig.WithStartFunctions()
+
+	if len(p.manifest.AllowedPaths) > 0 {
+		// NOTE: this is only necessary for guest modules because
+		// host modules have the same access privileges as the host itself
+		fs := wazero.NewFSConfig()
+		for host, guest := range p.manifest.AllowedPaths {
+			if strings.HasPrefix(host, "ro:") {
+				trimmed := strings.TrimPrefix(host, "ro:")
+				fs = fs.WithReadOnlyDirMount(trimmed, guest)
+			} else {
+				fs = fs.WithDirMount(host, guest)
+			}
+		}
+		moduleConfig = moduleConfig.WithFSConfig(fs)
+	}
 
 	_, wasiOutput := os.LookupEnv("EXTISM_ENABLE_WASI_OUTPUT")
 	if p.hasWasi && wasiOutput {
