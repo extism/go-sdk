@@ -162,14 +162,14 @@ func NewCompiledPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
+	foundMain := false
 	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		_, mainExists := p.modules["main"]
-		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
+		if data.Name == "" || i == len(manifest.Wasm)-1 && !foundMain {
 			data.Name = "main"
 		}
 
@@ -194,8 +194,10 @@ func NewCompiledPlugin(
 		if err != nil {
 			return nil, err
 		}
+
 		if data.Name == "main" {
 			p.main = m
+			foundMain = true
 		} else {
 			p.modules[data.Name] = m
 		}
@@ -223,7 +225,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if moduleConfig == nil {
 		moduleConfig = wazero.NewModuleConfig()
 	}
-	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
 
 	// NOTE: this is only necessary for guest modules because
 	// host modules have the same access privileges as the host itself
@@ -265,6 +266,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if err != nil {
 		return nil, fmt.Errorf("instantiating extism module: %w", err)
 	}
+
 	closers = append(closers, extism.Close)
 
 	// Instantiate all non-main modules first
@@ -272,19 +274,27 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	for name, module := range p.modules {
 		instance, err := p.runtime.InstantiateModule(ctx, module, moduleConfig.WithName(name))
 		if err != nil {
-			for _, m := range instancedModules {
-				m.Close(ctx)
+			for _, closer := range closers {
+				closer(ctx)
 			}
+
 			return nil, fmt.Errorf("instantiating module %s: %w", name, err)
 		}
+
 		instancedModules[name] = instance
 		closers = append(closers, instance.Close)
 	}
 
-	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
+	mainModuleName := strconv.Itoa(int(p.instanceCount.Add(1)))
+	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig.WithName(mainModuleName))
 	if err != nil {
+		for _, closer := range closers {
+			closer(ctx)
+		}
+
 		return nil, fmt.Errorf("instantiating module: %w", err)
 	}
+
 	closers = append(closers, main.Close)
 
 	p.maxHttp = int64(1024 * 1024 * 50)
@@ -301,6 +311,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if p.enableHttpResponseHeaders {
 		headers = map[string]string{}
 	}
+
 	instance := &Plugin{
 		close:                closers,
 		extism:               extism,
@@ -321,5 +332,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		traceCtx:             trace,
 	}
 	instance.guestRuntime = detectGuestRuntime(ctx, instance)
+
 	return instance, nil
 }
