@@ -1068,6 +1068,54 @@ func TestModuleLinking(t *testing.T) {
 	}
 }
 
+func TestModuleLinkingMultipleInstances(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/lib.wasm",
+				Name: "lib",
+			},
+			WasmFile{
+				Path: "wasm/main.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	compiledPlugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	}, []HostFunction{})
+
+	if err != nil {
+		t.Fatalf("Could not create plugin: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		plugin, err := compiledPlugin.Instance(ctx, config)
+		if err != nil {
+			t.Fatalf("Could not create plugin instance: %v", err)
+		}
+		// purposefully not closing the plugin instance
+
+		for j := 0; j < 3; j++ {
+
+			exit, output, err := plugin.Call("run_test", []byte("benjamin"))
+
+			if assertCall(t, err, exit) {
+				expected := "Hello, BENJAMIN"
+
+				actual := string(output)
+
+				assert.Equal(t, expected, actual)
+			}
+		}
+	}
+
+}
+
 func BenchmarkInitialize(b *testing.B) {
 	ctx := context.Background()
 	cache := wazero.NewCompilationCache()
