@@ -169,7 +169,7 @@ func NewCompiledPlugin(
 			return nil, err
 		}
 
-		if data.Name == "" || i == len(manifest.Wasm)-1 {
+		if (data.Name == "" || i == len(manifest.Wasm)-1) && !foundMain {
 			data.Name = "main"
 		}
 
