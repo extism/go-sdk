@@ -169,7 +169,7 @@ func NewCompiledPlugin(
 			return nil, err
 		}
 
-		if data.Name == "" || i == len(manifest.Wasm)-1 && !foundMain {
+		if data.Name == "" || i == len(manifest.Wasm)-1 {
 			data.Name = "main"
 		}
 
@@ -196,6 +196,10 @@ func NewCompiledPlugin(
 		}
 
 		if data.Name == "main" {
+			if foundMain {
+				return nil, errors.New("can't have more than one main module")
+			}
+
 			p.main = m
 			foundMain = true
 		} else {
