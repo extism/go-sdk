@@ -5,6 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
@@ -13,12 +20,6 @@ import (
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/experimental/logging"
 	"github.com/tetratelabs/wazero/sys"
-	"log"
-	"os"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 func TestWasmUrl(t *testing.T) {
@@ -1036,6 +1037,83 @@ func TestEnableExperimentalFeature(t *testing.T) {
 		assert.NotEmpty(t, buf.String())
 		assert.Empty(t, buf2.String())
 	}
+}
+
+func TestModuleLinking(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/lib.wasm",
+				Name: "lib",
+			},
+			WasmFile{
+				Path: "wasm/main.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	if plugin, ok := pluginInstance(t, manifest); ok {
+		defer plugin.Close(context.Background())
+
+		exit, output, err := plugin.Call("run_test", []byte("benjamin"))
+
+		if assertCall(t, err, exit) {
+			expected := "Hello, BENJAMIN"
+
+			actual := string(output)
+
+			assert.Equal(t, expected, actual)
+		}
+	}
+}
+
+func TestModuleLinkingMultipleInstances(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/lib.wasm",
+				Name: "lib",
+			},
+			WasmFile{
+				Path: "wasm/main.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	compiledPlugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	}, []HostFunction{})
+
+	if err != nil {
+		t.Fatalf("Could not create plugin: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		plugin, err := compiledPlugin.Instance(ctx, config)
+		if err != nil {
+			t.Fatalf("Could not create plugin instance: %v", err)
+		}
+		// purposefully not closing the plugin instance
+
+		for j := 0; j < 3; j++ {
+
+			exit, output, err := plugin.Call("run_test", []byte("benjamin"))
+
+			if assertCall(t, err, exit) {
+				expected := "Hello, BENJAMIN"
+
+				actual := string(output)
+
+				assert.Equal(t, expected, actual)
+			}
+		}
+	}
+
 }
 
 func BenchmarkInitialize(b *testing.B) {

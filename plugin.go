@@ -1,3 +1,4 @@
+// new
 package extism
 
 import (
@@ -21,6 +22,7 @@ type CompiledPlugin struct {
 	main    wazero.CompiledModule
 	extism  wazero.CompiledModule
 	env     api.Module
+	modules map[string]wazero.CompiledModule
 
 	// when a module (main) is instantiated, it may have a module name that's added
 	// to the data section of the wasm. If this is the case, we won't be able to
@@ -123,6 +125,7 @@ func NewCompiledPlugin(
 		observeAdapter:            config.ObserveAdapter,
 		observeOptions:            config.ObserveOptions,
 		enableHttpResponseHeaders: config.EnableHttpResponseHeaders,
+		modules:                   make(map[string]wazero.CompiledModule),
 	}
 
 	if config.EnableWasi {
@@ -161,19 +164,18 @@ func NewCompiledPlugin(
 	//  - If there is only one module in the manifest then that is the main module by default
 	//  - Otherwise the last module listed is the main module
 
-	modules := map[string]wazero.CompiledModule{}
+	foundMain := false
 	for i, wasm := range manifest.Wasm {
 		data, err := wasm.ToWasmData(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		_, mainExists := modules["main"]
-		if data.Name == "" || i == len(manifest.Wasm)-1 && !mainExists {
+		if (data.Name == "" || i == len(manifest.Wasm)-1) && !foundMain {
 			data.Name = "main"
 		}
 
-		_, okm := modules[data.Name]
+		_, okm := p.modules[data.Name]
 
 		if data.Name == "extism:host/env" || okm {
 			return nil, fmt.Errorf("module name collision: '%s'", data.Name)
@@ -194,10 +196,16 @@ func NewCompiledPlugin(
 		if err != nil {
 			return nil, err
 		}
+
 		if data.Name == "main" {
+			if foundMain {
+				return nil, errors.New("can't have more than one main module")
+			}
+
 			p.main = m
+			foundMain = true
 		} else {
-			modules[data.Name] = m
+			p.modules[data.Name] = m
 		}
 	}
 
@@ -258,8 +266,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Observe Adapter: %v", err)
 		}
-
-		trace.Finish()
 	}
 
 	// Compile and instantiate the extism runtime. This runtime is stateful and needs to be
@@ -271,12 +277,35 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if err != nil {
 		return nil, fmt.Errorf("instantiating extism module: %w", err)
 	}
+
 	closers = append(closers, extism.Close)
 
-	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig)
+	// Instantiate all non-main modules first
+	instancedModules := make(map[string]api.Module)
+	for name, module := range p.modules {
+		instance, err := p.runtime.InstantiateModule(ctx, module, moduleConfig.WithName(name))
+		if err != nil {
+			for _, closer := range closers {
+				closer(ctx)
+			}
+
+			return nil, fmt.Errorf("instantiating module %s: %w", name, err)
+		}
+
+		instancedModules[name] = instance
+		closers = append(closers, instance.Close)
+	}
+
+	mainModuleName := strconv.Itoa(int(p.instanceCount.Add(1)))
+	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig.WithName(mainModuleName))
 	if err != nil {
+		for _, closer := range closers {
+			closer(ctx)
+		}
+
 		return nil, fmt.Errorf("instantiating module: %w", err)
 	}
+
 	closers = append(closers, main.Close)
 
 	p.maxHttp = int64(1024 * 1024 * 50)
@@ -293,6 +322,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 	if p.enableHttpResponseHeaders {
 		headers = map[string]string{}
 	}
+
 	instance := &Plugin{
 		close:                closers,
 		extism:               extism,
@@ -313,5 +343,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		traceCtx:             trace,
 	}
 	instance.guestRuntime = detectGuestRuntime(ctx, instance)
+
 	return instance, nil
 }
