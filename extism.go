@@ -45,6 +45,11 @@ type Runtime struct {
 
 // PluginInstanceConfig contains configuration options for the Extism plugin.
 type PluginInstanceConfig struct {
+	// ModuleConfig allows the user to specify custom module configuration.
+	//
+	// NOTE: Module name and start functions are ignored as they are overridden by Extism, also if Manifest contains
+	// non-empty AllowedPaths, then FS is also ignored. If EXTISM_ENABLE_WASI_OUTPUT is set, then stdout and stderr are
+	// set to os.Stdout and os.Stderr respectively (ignoring user defined module config).
 	ModuleConfig wazero.ModuleConfig
 }
 
@@ -109,11 +114,13 @@ func (l LogLevel) String() string {
 type Plugin struct {
 	close  []func(ctx context.Context) error
 	extism api.Module
-
 	mainModule           api.Module
 	modules              map[string]api.Module
 	Timeout              time.Duration
 	Config               map[string]string
+	module  api.Module
+	Timeout time.Duration
+	Config  map[string]string
 	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
