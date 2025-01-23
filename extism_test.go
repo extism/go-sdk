@@ -1137,7 +1137,7 @@ func TestCompiledModuleMultipleInstances(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	numInstances := 30
+	numInstances := 300
 
 	// Create and test instances in parallel
 	for i := 0; i < numInstances; i++ {
@@ -1170,7 +1170,7 @@ func TestCompiledModuleMultipleInstances(t *testing.T) {
 
 func TestMultipleCallsOutputParallel(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
-	numInstances := 30
+	numInstances := 300
 
 	var wg sync.WaitGroup
 
