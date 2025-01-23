@@ -37,10 +37,9 @@ func RuntimeVersion() string {
 
 // Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
-	Wazero  wazero.Runtime
-	Extism  api.Module
-	Env     api.Module
-	hasWasi bool
+	Wazero wazero.Runtime
+	Extism api.Module
+	Env    api.Module
 }
 
 // PluginInstanceConfig contains configuration options for the Extism plugin.
@@ -112,15 +111,12 @@ func (l LogLevel) String() string {
 
 // Plugin is used to call WASM functions
 type Plugin struct {
-	close  []func(ctx context.Context) error
-	extism api.Module
+	close                []func(ctx context.Context) error
+	extism               api.Module
 	mainModule           api.Module
 	modules              map[string]api.Module
 	Timeout              time.Duration
 	Config               map[string]string
-	module  api.Module
-	Timeout time.Duration
-	Config  map[string]string
 	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string

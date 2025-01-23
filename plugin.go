@@ -317,8 +317,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		moduleConfig = wazero.NewModuleConfig()
 	}
 
-	moduleConfig = moduleConfig.WithName(strconv.Itoa(int(p.instanceCount.Add(1))))
-
 	// NOTE: we don't want wazero to call the start function, we will initialize
 	// the guest runtime manually.
 	// See: https://github.com/extism/go-sdk/pull/1#issuecomment-1650527495
@@ -417,7 +415,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		log:                  logStd,
 		traceCtx:             trace,
 	}
-	instance.guestRuntime = detectGuestRuntime(ctx, instance)
+	instance.guestRuntime = detectGuestRuntime(instance)
 
 	return instance, nil
 }
