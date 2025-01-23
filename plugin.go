@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -85,6 +84,24 @@ func NewPlugin(
 	return p, nil
 }
 
+func calculateMaxHttp(manifest Manifest) int64 {
+	// Default is 50MB
+	maxHttp := int64(1024 * 1024 * 50)
+	if manifest.Memory != nil && manifest.Memory.MaxHttpResponseBytes >= 0 {
+		maxHttp = manifest.Memory.MaxHttpResponseBytes
+	}
+	return maxHttp
+}
+
+func calculateMaxVar(manifest Manifest) int64 {
+	// Default is 1MB
+	maxVar := int64(1024 * 1024)
+	if manifest.Memory != nil && manifest.Memory.MaxVarBytes >= 0 {
+		maxVar = manifest.Memory.MaxVarBytes
+	}
+	return maxVar
+}
+
 // NewCompiledPlugin creates a compiled plugin that is ready to be instantiated.
 // You can instantiate the plugin multiple times using the CompiledPlugin.Instance
 // method and run those instances concurrently.
@@ -124,6 +141,8 @@ func NewCompiledPlugin(
 		observeOptions:            config.ObserveOptions,
 		enableHttpResponseHeaders: config.EnableHttpResponseHeaders,
 		modules:                   make(map[string]wazero.CompiledModule),
+		maxHttp:                   calculateMaxHttp(manifest),
+		maxVar:                    calculateMaxVar(manifest),
 	}
 
 	if config.EnableWasi {
@@ -190,7 +209,7 @@ func NewCompiledPlugin(
 			p.wasmBytes = data.Data
 		}
 
-		m, err := p.runtime.CompileModule(ctx, data.Data)
+		compiledModule, err := p.runtime.CompileModule(ctx, data.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -199,11 +218,16 @@ func NewCompiledPlugin(
 			if foundMain {
 				return nil, errors.New("can't have more than one main module")
 			}
-
-			p.main = m
+			p.main = compiledModule
 			foundMain = true
 		} else {
-			p.modules[data.Name] = m
+			// Store compiled module for instantiation
+			p.modules[data.Name] = compiledModule
+			// Create wrapper with original name that will forward calls to the actual module instance. See createModuleWrapper for more details.
+			_, err = createModuleWrapper(ctx, p.runtime, data.Name, compiledModule)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create wrapper for %s: %w", data.Name, err)
+			}
 		}
 	}
 
@@ -218,11 +242,72 @@ func NewCompiledPlugin(
 	return &p, nil
 }
 
+// createModuleWrapper creates a host module that acts as a proxy for module instances.
+// In Wazero, modules with the same name cannot be instantiated multiple times in the same runtime.
+// However, we need each Plugin instance to have its own copy of each module for isolation. To solve this, we:
+//  1. Create a host module wrapper that keeps the original module name (needed for imports to work)
+//  2. Instantiate actual module copies with unique names for each Plugin
+//  3. The wrapper forwards function calls to the correct module instance for each Plugin
+func createModuleWrapper(ctx context.Context, rt wazero.Runtime, name string, compiled wazero.CompiledModule) (api.Module, error) {
+	builder := rt.NewHostModuleBuilder(name)
+
+	// Create proxy functions for each exported function from the original module.
+	// These proxies will forward calls to the appropriate module instance.
+	for _, export := range compiled.ExportedFunctions() {
+		exportName := export.Name()
+
+		// Skip wrapping the _start function since it's automatically called by wazero during instantiation.
+		// The wrapper functions require a Plugin instance in the context to work, but during wrapper
+		// instantiation there is no Plugin instance yet.
+		if exportName == "_start" {
+			continue
+		}
+
+		// Create a proxy function that:
+		// 1. Gets the calling Plugin instance from context
+		// 2. Looks up that Plugin's copy of this module
+		// 3. Forwards the call to the actual function
+		wrapper := func(callCtx context.Context, mod api.Module, stack []uint64) {
+			// Get the Plugin instance that's making this call
+			plugin, ok := callCtx.Value(PluginCtxKey("plugin")).(*Plugin)
+			if !ok {
+				panic("Invalid context, `plugin` key not found")
+			}
+
+			// Get this Plugin's instance of the module
+			actualModule, ok := plugin.modules[name]
+			if !ok {
+				panic(fmt.Sprintf("module %s not found in plugin", name))
+			}
+
+			// Forward the call to the actual module instance
+			fn := actualModule.ExportedFunction(exportName)
+			if fn == nil {
+				panic(fmt.Sprintf("function %s not found in module %s", exportName, name))
+			}
+
+			err := fn.CallWithStack(callCtx, stack)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		// Export the proxy function with the same name and signature as the original
+		builder.NewFunctionBuilder().
+			WithGoModuleFunction(api.GoModuleFunc(wrapper), export.ParamTypes(), export.ResultTypes()).
+			Export(exportName)
+	}
+
+	return builder.Instantiate(ctx)
+}
+
 func (p *CompiledPlugin) Close(ctx context.Context) error {
 	return p.runtime.Close(ctx)
 }
 
 func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConfig) (*Plugin, error) {
+	instanceNum := p.instanceCount.Add(1)
+
 	var closers []func(ctx context.Context) error
 
 	moduleConfig := config.ModuleConfig
@@ -275,21 +360,20 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 
 	// Instantiate all non-main modules first
 	instancedModules := make(map[string]api.Module)
-	for name, module := range p.modules {
-		instance, err := p.runtime.InstantiateModule(ctx, module, moduleConfig.WithName(name))
+	for name, compiledModule := range p.modules {
+		uniqueName := fmt.Sprintf("%s_%d", name, instanceNum)
+		instance, err := p.runtime.InstantiateModule(ctx, compiledModule, moduleConfig.WithName(uniqueName))
 		if err != nil {
 			for _, closer := range closers {
 				closer(ctx)
 			}
-
 			return nil, fmt.Errorf("instantiating module %s: %w", name, err)
 		}
-
 		instancedModules[name] = instance
 		closers = append(closers, instance.Close)
 	}
 
-	mainModuleName := strconv.Itoa(int(p.instanceCount.Add(1)))
+	mainModuleName := fmt.Sprintf("main_%d", instanceNum)
 	main, err := p.runtime.InstantiateModule(ctx, p.main, moduleConfig.WithName(mainModuleName))
 	if err != nil {
 		for _, closer := range closers {
@@ -301,16 +385,6 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 
 	closers = append(closers, main.Close)
 
-	p.maxHttp = int64(1024 * 1024 * 50)
-	if p.manifest.Memory != nil && p.manifest.Memory.MaxHttpResponseBytes >= 0 {
-		p.maxHttp = p.manifest.Memory.MaxHttpResponseBytes
-	}
-
-	p.maxVar = int64(1024 * 1024)
-	if p.manifest.Memory != nil && p.manifest.Memory.MaxVarBytes >= 0 {
-		p.maxVar = p.manifest.Memory.MaxVarBytes
-	}
-
 	var headers map[string]string = nil
 	if p.enableHttpResponseHeaders {
 		headers = map[string]string{}
@@ -320,7 +394,8 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		close:                closers,
 		extism:               extism,
 		hasWasi:              p.hasWasi,
-		module:               main,
+		mainModule:           main,
+		modules:              instancedModules,
 		Timeout:              time.Duration(p.manifest.Timeout) * time.Millisecond,
 		Config:               p.manifest.Config,
 		Var:                  make(map[string][]byte),

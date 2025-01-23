@@ -2,6 +2,7 @@ package extism
 
 import (
 	"context"
+
 	"github.com/tetratelabs/wazero/api"
 )
 
@@ -22,12 +23,12 @@ type guestRuntime struct {
 }
 
 func detectGuestRuntime(ctx context.Context, p *Plugin) guestRuntime {
-	runtime, ok := haskellRuntime(ctx, p, p.module)
+	runtime, ok := haskellRuntime(ctx, p, p.mainModule)
 	if ok {
 		return runtime
 	}
 
-	runtime, ok = wasiRuntime(ctx, p, p.module)
+	runtime, ok = wasiRuntime(ctx, p, p.mainModule)
 	if ok {
 		return runtime
 	}
