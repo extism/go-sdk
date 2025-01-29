@@ -518,6 +518,12 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			panic(fmt.Errorf("invalid http request: %v", err))
 		}
 
+		// default method to GET and force to be upper
+		if request.Method == "" {
+			request.Method = "GET"
+		}
+		request.Method = strings.ToUpper(request.Method)
+
 		url, err := url.Parse(request.Url)
 		if err != nil {
 			panic(fmt.Errorf("invalid url: %v", err))
