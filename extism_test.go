@@ -5,6 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
 	observe "github.com/dylibso/observe-sdk/go"
 	"github.com/dylibso/observe-sdk/go/adapter/stdout"
 	"github.com/stretchr/testify/assert"
@@ -13,12 +20,6 @@ import (
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/experimental/logging"
 	"github.com/tetratelabs/wazero/sys"
-	"log"
-	"os"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 func TestWasmUrl(t *testing.T) {
@@ -1036,6 +1037,170 @@ func TestEnableExperimentalFeature(t *testing.T) {
 		assert.NotEmpty(t, buf.String())
 		assert.Empty(t, buf2.String())
 	}
+}
+
+func TestModuleLinking(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/lib.wasm",
+				Name: "lib",
+			},
+			WasmFile{
+				Path: "wasm/main.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	if plugin, ok := pluginInstance(t, manifest); ok {
+		defer plugin.Close(context.Background())
+
+		exit, output, err := plugin.Call("run_test", []byte("benjamin"))
+
+		if assertCall(t, err, exit) {
+			expected := "Hello, BENJAMIN"
+
+			actual := string(output)
+
+			assert.Equal(t, expected, actual)
+		}
+	}
+}
+
+func TestModuleLinkingMultipleInstances(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/lib.wasm",
+				Name: "lib",
+			},
+			WasmFile{
+				Path: "wasm/main.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	compiledPlugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	}, []HostFunction{})
+
+	if err != nil {
+		t.Fatalf("Could not create plugin: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		plugin, err := compiledPlugin.Instance(ctx, config)
+		if err != nil {
+			t.Fatalf("Could not create plugin instance: %v", err)
+		}
+		// purposefully not closing the plugin instance
+
+		for j := 0; j < 3; j++ {
+
+			exit, output, err := plugin.Call("run_test", []byte("benjamin"))
+
+			if assertCall(t, err, exit) {
+				expected := "Hello, BENJAMIN"
+
+				actual := string(output)
+
+				assert.Equal(t, expected, actual)
+			}
+		}
+	}
+}
+
+func TestCompiledModuleMultipleInstances(t *testing.T) {
+	manifest := Manifest{
+		Wasm: []Wasm{
+			WasmFile{
+				Path: "wasm/count_vowels.wasm",
+				Name: "main",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	config := wasiPluginConfig()
+
+	compiledPlugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+	}, []HostFunction{})
+
+	if err != nil {
+		t.Fatalf("Could not create plugin: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	numInstances := 300
+
+	// Create and test instances in parallel
+	for i := 0; i < numInstances; i++ {
+		wg.Add(1)
+		go func(instanceNum int) {
+			defer wg.Done()
+
+			plugin, err := compiledPlugin.Instance(ctx, config)
+			if err != nil {
+				t.Errorf("Could not create plugin instance %d: %v", instanceNum, err)
+				return
+			}
+			// purposefully not closing the plugin instance
+
+			// Sequential calls for this instance
+			for j := 0; j < 3; j++ {
+				exit, _, err := plugin.Call("count_vowels", []byte("benjamin"))
+				if err != nil {
+					t.Errorf("Instance %d, call %d failed: %v", instanceNum, j, err)
+					return
+				}
+				if exit != 0 {
+					t.Errorf("Instance %d, call %d returned non-zero exit code: %d", instanceNum, j, exit)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestMultipleCallsOutputParallel(t *testing.T) {
+	manifest := manifest("count_vowels.wasm")
+	numInstances := 300
+
+	var wg sync.WaitGroup
+
+	// Create and test instances in parallel
+	for i := 0; i < numInstances; i++ {
+		wg.Add(1)
+		go func(instanceNum int) {
+			defer wg.Done()
+
+			if plugin, ok := pluginInstance(t, manifest); ok {
+				defer plugin.Close(context.Background())
+
+				// Sequential calls for this instance
+				exit, output1, err := plugin.Call("count_vowels", []byte("aaa"))
+				if !assertCall(t, err, exit) {
+					return
+				}
+
+				exit, output2, err := plugin.Call("count_vowels", []byte("bbba"))
+				if !assertCall(t, err, exit) {
+					return
+				}
+
+				assert.Equal(t, `{"count":3,"total":3,"vowels":"aeiouAEIOU"}`, string(output1))
+				assert.Equal(t, `{"count":1,"total":4,"vowels":"aeiouAEIOU"}`, string(output2))
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
 
 func BenchmarkInitialize(b *testing.B) {

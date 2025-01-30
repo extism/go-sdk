@@ -37,10 +37,9 @@ func RuntimeVersion() string {
 
 // Runtime represents the Extism plugin's runtime environment, including the underlying Wazero runtime and modules.
 type Runtime struct {
-	Wazero  wazero.Runtime
-	Extism  api.Module
-	Env     api.Module
-	hasWasi bool
+	Wazero wazero.Runtime
+	Extism api.Module
+	Env    api.Module
 }
 
 // PluginInstanceConfig contains configuration options for the Extism plugin.
@@ -112,13 +111,12 @@ func (l LogLevel) String() string {
 
 // Plugin is used to call WASM functions
 type Plugin struct {
-	close  []func(ctx context.Context) error
-	extism api.Module
-
-	module  api.Module
-	Timeout time.Duration
-	Config  map[string]string
-	// NOTE: maybe we can have some nice methods for getting/setting vars
+	close                []func(ctx context.Context) error
+	extism               api.Module
+	mainModule           api.Module
+	modules              map[string]api.Module
+	Timeout              time.Duration
+	Config               map[string]string
 	Var                  map[string][]byte
 	AllowedHosts         []string
 	AllowedPaths         map[string]string
@@ -138,7 +136,7 @@ func logStd(level LogLevel, message string) {
 }
 
 func (p *Plugin) Module() *Module {
-	return &Module{inner: p.module}
+	return &Module{inner: p.mainModule}
 }
 
 // SetLogger sets a custom logging callback
@@ -443,7 +441,7 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 
 // FunctionExists returns true when the named function is present in the plugin's main Module
 func (p *Plugin) FunctionExists(name string) bool {
-	return p.module.ExportedFunction(name) != nil
+	return p.mainModule.ExportedFunction(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
@@ -469,7 +467,7 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 
 	ctx = context.WithValue(ctx, InputOffsetKey("inputOffset"), intputOffset)
 
-	var f = p.module.ExportedFunction(name)
+	var f = p.mainModule.ExportedFunction(name)
 
 	if f == nil {
 		return 1, []byte{}, fmt.Errorf("unknown function: %s", name)
@@ -477,7 +475,7 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 		return 1, []byte{}, fmt.Errorf("function %s has %v results, expected 0 or 1", name, n)
 	}
 
-	var isStart = name == "_start"
+	var isStart = name == "_start" || name == "_initialize"
 	if p.guestRuntime.init != nil && !isStart && !p.guestRuntime.initialized {
 		err := p.guestRuntime.init(ctx)
 		if err != nil {
@@ -501,7 +499,7 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 		if exitCode == 0 {
 			// It's possible for the function to return 0 as an error code, even
 			// if the module is closed.
-			if p.module.IsClosed() {
+			if p.mainModule.IsClosed() {
 				return 0, nil, fmt.Errorf("module is closed")
 			}
 			err = nil
