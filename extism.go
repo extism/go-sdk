@@ -475,7 +475,7 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 		return 1, []byte{}, fmt.Errorf("function %s has %v results, expected 0 or 1", name, n)
 	}
 
-	var isStart = name == "_start"
+	var isStart = name == "_start" || name == "_initialize"
 	if p.guestRuntime.init != nil && !isStart && !p.guestRuntime.initialized {
 		err := p.guestRuntime.init(ctx)
 		if err != nil {
