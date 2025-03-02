@@ -451,6 +451,10 @@ func (p *Plugin) Call(name string, data []byte) (uint32, []byte, error) {
 
 // Call a function by name with the given input and context, returning the output
 func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+	if p.mainModule.IsClosed() {
+		return 0, nil, fmt.Errorf("module is closed")
+	}
+
 	ctx = context.WithValue(ctx, PluginCtxKey("extism"), p.extism)
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -497,11 +501,6 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 		exitCode := exitErr.ExitCode()
 
 		if exitCode == 0 {
-			// It's possible for the function to return 0 as an error code, even
-			// if the module is closed.
-			if p.mainModule.IsClosed() {
-				return 0, nil, fmt.Errorf("module is closed")
-			}
 			err = nil
 		}
 

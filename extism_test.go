@@ -781,6 +781,23 @@ func TestCountVowels(t *testing.T) {
 	}
 }
 
+func TestCountVowelsStdGo(t *testing.T) {
+	manifest := manifest("std_command.wasm")
+
+	if plugin, ok := pluginInstance(t, manifest); ok {
+		defer plugin.Close(context.Background())
+
+		exit, output, err := plugin.Call("_start", []byte("ben"))
+
+		result := string(output)
+		if assertCall(t, err, exit) {
+			expected := "hello ben"
+
+			assert.Equal(t, expected, result)
+		}
+	}
+}
+
 func TestMultipleCallsOutput(t *testing.T) {
 	manifest := manifest("count_vowels.wasm")
 
