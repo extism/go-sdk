@@ -254,11 +254,13 @@ While Wazero (the underlying Wasm runtime) is very fast in initializing modules,
 
 ```go
 ctx := context.Background()
+// you can also use a file system cache: wazero.NewCompilationCacheWithDir(cacheDir)
 cache := wazero.NewCompilationCache()
 
 // If the cache is configured, the engine is shared across multiple instances of
 // Plugin/CompiledPlugin, and its lifetime is not bound to them. Instead, the engine is alive until Cache.Close is called.
-// This means that when using wazero compilation cache with a compiled plugin, the lifetime of the compiled plugin is tied to the cache instance. Make sure not to close the cache until you're done with all compiled plugins that depend on it.
+// This means that when using wazero compilation cache with a compiled plugin, the lifetime of the compiled plugin is tied to the cache instance.
+// Make sure not to close the cache until you're done with all compiled plugins that depend on it.
 defer cache.Close(ctx)
 
 manifest := Manifest{Wasm: []Wasm{WasmFile{Path: "wasm/noop.wasm"}}}
