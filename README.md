@@ -268,57 +268,66 @@ config := PluginConfig{
 _, err := NewPlugin(ctx, manifest, config, []HostFunction{})
 ```
 
-### Pre-compling plugins
+### Pre-compiling plugins
 
-If you know you need to create multiple instances of the sample plugin, it would be faster to add an intermediate step. First, you compile the plugin, and then you can create instances from the `CompiledPlugin`.
+If you need to create multiple instances of the same plugin, especially in concurrent scenarios, it's more efficient to first compile the plugin once and then create instances from the `CompiledPlugin`:
 
 ```go
 manifest := extism.Manifest{
-		Wasm: []extism.Wasm{
-			extism.WasmUrl{
-				Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
-			},
-		},
-	}
+    Wasm: []extism.Wasm{
+        extism.WasmUrl{
+            Url: "https://github.com/extism/plugins/releases/latest/download/count_vowels.wasm",
+        },
+    },
+}
 
 ctx := context.Background()
 config := extism.PluginConfig{}
 
-// Step 1: Compile the plugin
+// Step 1: Compile the plugin once
 compiledPlugin, err := extism.NewCompiledPlugin(ctx, manifest, config, []extism.HostFunction{})
 if err != nil {
-	panic(err)
+    panic(err)
 }
 
+// Example: Using the compiled plugin in multiple goroutines
+var wg sync.WaitGroup
 for i := 0; i < 3; i++ {
-	// Step 2: Create as many instances as you want
-	plugin, err := compiledPlugin.Instance(ctx, extism.PluginInstanceConfig{})
-	defer plugin.Close(ctx)
-	if err != nil {
-		fmt.Printf("Failed to initialize plugin: %v\n", err)
-		os.Exit(1)
-	}
-
-	data := []byte("Hello, World!")
-	exit, out, err := plugin.Call("count_vowels", data)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(int(exit))
-	}
-
-	response := string(out)
-	fmt.Println(response)
+    wg.Add(1)
+    go func(id int) {
+        defer wg.Done()
+        
+        // Step 2: Create an instance from the compiled plugin
+        plugin, err := compiledPlugin.Instance(ctx, extism.PluginInstanceConfig{})
+        if err != nil {
+            fmt.Printf("Failed to initialize plugin: %v\n", err)
+            return
+        }
+        defer plugin.Close(ctx)
+        
+        data := []byte(fmt.Sprintf("Hello, World from goroutine %d!", id))
+        _, out, err := plugin.Call("count_vowels", data)
+        if err != nil {
+            fmt.Println(err)
+            return
+        }
+        
+        fmt.Printf("Goroutine %d result: %s\n", id, string(out))
+    }(i)
 }
-````
+wg.Wait()
+```
 
-> **Note:** When you enable wazero compilation cache when compiling a plugin, the lifetime of the compiled plugin will be tied to the cache instance
+> **Note:** When using wazero compilation cache with a compiled plugin, the lifetime of the compiled plugin is tied to the cache instance. Make sure not to close the cache until you're done with all compiled plugins that depend on it.
+
+> **Important:** Each plugin instance has its own state. In the example above, each instance maintains its own "total" count of vowels, not shared with other instances.
 
 ### Integrate with Dylibso Observe SDK
 Dylibso provides [observability SDKs](https://github.com/dylibso/observe-sdk) for WebAssembly (Wasm), enabling continuous monitoring of WebAssembly code as it executes within a runtime. It provides developers with the tools necessary to capture and emit telemetry data from Wasm code, including function execution and memory allocation traces, logs, and metrics.
 
 While Observe SDK has adapters for many popular observability platforms, it also ships with an stdout adapter:
 
-```
+```go
 ctx := context.Background()
 
 adapter := stdout.NewStdoutAdapter()
