@@ -125,6 +125,7 @@ type Plugin struct {
 	MaxHttpResponseBytes int64
 	MaxVarBytes          int64
 	log                  func(LogLevel, string)
+	httpClient           *http.Client
 	hasWasi              bool
 	guestRuntime         guestRuntime
 	Adapter              *observe.AdapterBase
