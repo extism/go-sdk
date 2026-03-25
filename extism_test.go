@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -1507,4 +1508,41 @@ func uintToLEBytes(num uint) []byte {
 
 func uintFromLEBytes(bytes []byte) uint {
 	return uint(bytes[0]) | uint(bytes[1])<<8 | uint(bytes[2])<<16 | uint(bytes[3])<<24
+}
+
+func TestHTTP_customClient(t *testing.T) {
+	manifest := manifest("http.wasm")
+	manifest.AllowedHosts = []string{"jsonplaceholder.*.com"}
+
+	// Track whether our custom transport was used.
+	var transportUsed bool
+	customClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			transportUsed = true
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	ctx := context.Background()
+	plugin, err := NewCompiledPlugin(ctx, manifest, PluginConfig{
+		EnableWasi: true,
+		HTTPClient: customClient,
+	}, nil)
+	require.NoError(t, err)
+
+	instance, err := plugin.Instance(ctx, wasiPluginConfig())
+	require.NoError(t, err)
+	defer instance.Close(context.Background())
+
+	exit, _, err := instance.Call("run_test", []byte{})
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0), exit)
+	assert.True(t, transportUsed, "custom HTTP client transport should have been used")
+}
+
+// roundTripFunc allows using a function as an http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

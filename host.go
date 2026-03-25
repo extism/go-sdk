@@ -569,7 +569,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			req.Header.Set(key, value)
 		}
 
-		client := http.DefaultClient
+		client := plugin.httpClient
 		resp, err := client.Do(req)
 		if err != nil {
 			panic(err)

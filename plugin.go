@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -40,6 +41,7 @@ type CompiledPlugin struct {
 	maxHttp                   int64
 	maxVar                    int64
 	enableHttpResponseHeaders bool
+	httpClient                *http.Client
 }
 
 type PluginConfig struct {
@@ -48,6 +50,10 @@ type PluginConfig struct {
 	ObserveAdapter            *observe.AdapterBase
 	ObserveOptions            *observe.Options
 	EnableHttpResponseHeaders bool
+
+	// HTTPClient overrides the default HTTP client used for plugin HTTP requests.
+	// If nil, http.DefaultClient is used.
+	HTTPClient *http.Client
 
 	// ModuleConfig is only used when a plugins are built using the NewPlugin
 	// function. In this function, the plugin is both compiled, and an instance
@@ -136,6 +142,11 @@ func NewCompiledPlugin(
 		}
 	}
 
+	httpClient := config.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
 	p := CompiledPlugin{
 		manifest:                  manifest,
 		runtime:                   wazero.NewRuntimeWithConfig(ctx, runtimeConfig),
@@ -145,6 +156,7 @@ func NewCompiledPlugin(
 		modules:                   make(map[string]wazero.CompiledModule),
 		maxHttp:                   calculateMaxHttp(manifest),
 		maxVar:                    calculateMaxVar(manifest),
+		httpClient:                httpClient,
 	}
 
 	if config.EnableWasi {
@@ -399,6 +411,7 @@ func (p *CompiledPlugin) Instance(ctx context.Context, config PluginInstanceConf
 		close:                closers,
 		extism:               extism,
 		hasWasi:              p.hasWasi,
+		httpClient:           p.httpClient,
 		mainModule:           main,
 		modules:              instancedModules,
 		Timeout:              time.Duration(p.manifest.Timeout) * time.Millisecond,
