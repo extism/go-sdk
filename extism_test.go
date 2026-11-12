@@ -865,6 +865,50 @@ func TestCallReusesFunctions(t *testing.T) {
 	}
 }
 
+// TestHostFunctionCallsBack checks that a host function can call back into
+// the plugin that called it, into the same export, and that the next call
+// still works.
+func TestHostFunctionCallsBack(t *testing.T) {
+	manifest := manifest("host.wasm")
+
+	var plugin *Plugin
+	var inner []byte
+	nested := false
+	mult := NewHostFunctionWithStack(
+		"mult",
+		func(ctx context.Context, p *CurrentPlugin, stack []uint64) {
+			if !nested {
+				nested = true
+				exit, output, err := plugin.CallWithContext(ctx, "run_test", []byte{})
+				nested = false
+				if assertCall(t, err, exit) {
+					inner = output
+				}
+			}
+
+			a := DecodeI32(stack[0])
+			b := DecodeI32(stack[1])
+			stack[0] = EncodeI32(a * b)
+		},
+		[]ValueType{ValueTypePTR, ValueTypePTR},
+		[]ValueType{ValueTypePTR},
+	)
+
+	var ok bool
+	if plugin, ok = pluginInstance(t, manifest, mult); ok {
+		defer plugin.Close(context.Background())
+
+		for i := 0; i < 2; i++ {
+			inner = nil
+			exit, output, err := plugin.Call("run_test", []byte{})
+			if assertCall(t, err, exit) {
+				assert.Equal(t, "42 x 2 = 84", string(output))
+				assert.Equal(t, "42 x 2 = 84", string(inner))
+			}
+		}
+	}
+}
+
 func TestHelloHaskell(t *testing.T) {
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
