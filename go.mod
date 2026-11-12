@@ -1,6 +1,6 @@
 module github.com/extism/go-sdk
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/dylibso/observe-sdk/go v0.0.0-20240819160327-2d926c5d788a
