@@ -129,6 +129,49 @@ type Plugin struct {
 	guestRuntime         guestRuntime
 	Adapter              *observe.AdapterBase
 	traceCtx             *observe.TraceCtx
+
+	// exportFns and kernelFns keep the functions this plugin has called, so
+	// that later calls reuse them: wazero's ExportedFunction builds a new
+	// function, with its own call stack, every time it is asked. A Plugin is
+	// not safe for concurrent use, so the maps need no lock.
+	exportFns map[string]api.Function
+	kernelFns map[string]api.Function
+
+	// calls is the number of CallWithContext calls in progress. It is more
+	// than one only while a host function calls back into the plugin.
+	calls int
+}
+
+// exportFn returns the main module's export called name, looking it up only
+// the first time. A missing export is not remembered.
+func (p *Plugin) exportFn(name string) api.Function {
+	if f, ok := p.exportFns[name]; ok {
+		return f
+	}
+	f := p.mainModule.ExportedFunction(name)
+	if f != nil {
+		if p.exportFns == nil {
+			p.exportFns = map[string]api.Function{}
+		}
+		p.exportFns[name] = f
+	}
+	return f
+}
+
+// kernelFn returns the extism kernel's export called name, looking it up only
+// the first time.
+func (p *Plugin) kernelFn(name string) api.Function {
+	if f, ok := p.kernelFns[name]; ok {
+		return f
+	}
+	f := p.extism.ExportedFunction(name)
+	if f != nil {
+		if p.kernelFns == nil {
+			p.kernelFns = map[string]api.Function{}
+		}
+		p.kernelFns[name] = f
+	}
+	return f
 }
 
 func logStd(level LogLevel, message string) {
@@ -369,18 +412,18 @@ func (p *Plugin) SetInput(data []byte) (uint64, error) {
 
 // SetInputWithContext sets the input data for the plugin to be used in the next WebAssembly function call.
 func (p *Plugin) SetInputWithContext(ctx context.Context, data []byte) (uint64, error) {
-	_, err := p.extism.ExportedFunction("reset").Call(ctx)
+	_, err := p.kernelFn("reset").Call(ctx)
 	if err != nil {
 		fmt.Println(err)
 		return 0, errors.New("reset")
 	}
 
-	ptr, err := p.extism.ExportedFunction("alloc").Call(ctx, uint64(len(data)))
+	ptr, err := p.kernelFn("alloc").Call(ctx, uint64(len(data)))
 	if err != nil {
 		return 0, err
 	}
 	p.Memory().Write(uint32(ptr[0]), data)
-	p.extism.ExportedFunction("input_set").Call(ctx, ptr[0], uint64(len(data)))
+	p.kernelFn("input_set").Call(ctx, ptr[0], uint64(len(data)))
 	return ptr[0], nil
 }
 
@@ -391,12 +434,12 @@ func (p *Plugin) GetOutput() ([]byte, error) {
 
 // GetOutputWithContext retrieves the output data from the last WebAssembly function call.
 func (p *Plugin) GetOutputWithContext(ctx context.Context) ([]byte, error) {
-	outputOffs, err := p.extism.ExportedFunction("output_offset").Call(ctx)
+	outputOffs, err := p.kernelFn("output_offset").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	outputLen, err := p.extism.ExportedFunction("output_length").Call(ctx)
+	outputLen, err := p.kernelFn("output_length").Call(ctx)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -421,7 +464,7 @@ func (p *Plugin) GetError() string {
 
 // GetErrorWithContext retrieves the error message from the last WebAssembly function call.
 func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
-	errOffs, err := p.extism.ExportedFunction("error_get").Call(ctx)
+	errOffs, err := p.kernelFn("error_get").Call(ctx)
 	if err != nil {
 		return ""
 	}
@@ -430,7 +473,7 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 		return ""
 	}
 
-	errLen, err := p.extism.ExportedFunction("length").Call(ctx, errOffs[0])
+	errLen, err := p.kernelFn("length").Call(ctx, errOffs[0])
 	if err != nil {
 		return ""
 	}
@@ -441,7 +484,7 @@ func (p *Plugin) GetErrorWithContext(ctx context.Context) string {
 
 // FunctionExists returns true when the named function is present in the plugin's main Module
 func (p *Plugin) FunctionExists(name string) bool {
-	return p.mainModule.ExportedFunction(name) != nil
+	return p.exportFn(name) != nil
 }
 
 // Call a function by name with the given input, returning the output
@@ -454,6 +497,9 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 	if p.mainModule.IsClosed() {
 		return 0, nil, fmt.Errorf("module is closed")
 	}
+
+	p.calls++
+	defer func() { p.calls-- }()
 
 	ctx = context.WithValue(ctx, PluginCtxKey("extism"), p.extism)
 	if p.Timeout > 0 {
@@ -471,7 +517,15 @@ func (p *Plugin) CallWithContext(ctx context.Context, name string, data []byte) 
 
 	ctx = context.WithValue(ctx, InputOffsetKey("inputOffset"), intputOffset)
 
-	var f = p.mainModule.ExportedFunction(name)
+	// A host function that calls back into the plugin gets a function of its
+	// own: wazero does not allow an api.Function to be called again before
+	// its previous call returns, and the outer call may be in the same export.
+	var f api.Function
+	if p.calls == 1 {
+		f = p.exportFn(name)
+	} else {
+		f = p.mainModule.ExportedFunction(name)
+	}
 
 	if f == nil {
 		return 1, []byte{}, fmt.Errorf("unknown function: %s", name)

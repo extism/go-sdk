@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -818,6 +819,93 @@ func TestMultipleCallsOutput(t *testing.T) {
 
 		assert.Equal(t, `{"count":3,"total":3,"vowels":"aeiouAEIOU"}`, string(output1))
 		assert.Equal(t, `{"count":1,"total":4,"vowels":"aeiouAEIOU"}`, string(output2))
+	}
+}
+
+// TestCallReusesFunctions checks that a plugin keeps the wazero functions a
+// call goes through (the export, the kernel's input/output functions and the
+// env functions the guest reads its input with) instead of building them
+// again on every call. wazero builds a new function, with a new call stack,
+// each time ExportedFunction is asked: before the plugin kept them, a
+// count_vowels call allocated about 600 KB.
+func TestCallReusesFunctions(t *testing.T) {
+	manifest := manifest("count_vowels.wasm")
+
+	if plugin, ok := pluginInstance(t, manifest); ok {
+		defer plugin.Close(context.Background())
+
+		input := []byte("hello world")
+
+		// The first call looks the functions up.
+		exit, _, err := plugin.Call("count_vowels", input)
+		if !assertCall(t, err, exit) {
+			return
+		}
+
+		const calls = 100
+		var output []byte
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		for i := 0; i < calls; i++ {
+			exit, output, err = plugin.Call("count_vowels", input)
+			if !assertCall(t, err, exit) {
+				return
+			}
+		}
+		runtime.ReadMemStats(&after)
+
+		var actual map[string]int
+		json.Unmarshal(output, &actual)
+		assert.Equal(t, 3, actual["count"], "the last call still counts right")
+
+		perCall := (after.TotalAlloc - before.TotalAlloc) / calls
+		t.Logf("bytes allocated per call: %d", perCall)
+		assert.Less(t, perCall, uint64(8<<10), "a call builds its functions again instead of reusing them")
+	}
+}
+
+// TestHostFunctionCallsBack checks that a host function can call back into
+// the plugin that called it, into the same export, and that the next call
+// still works.
+func TestHostFunctionCallsBack(t *testing.T) {
+	manifest := manifest("host.wasm")
+
+	var plugin *Plugin
+	var inner []byte
+	nested := false
+	mult := NewHostFunctionWithStack(
+		"mult",
+		func(ctx context.Context, p *CurrentPlugin, stack []uint64) {
+			if !nested {
+				nested = true
+				exit, output, err := plugin.CallWithContext(ctx, "run_test", []byte{})
+				nested = false
+				if assertCall(t, err, exit) {
+					inner = output
+				}
+			}
+
+			a := DecodeI32(stack[0])
+			b := DecodeI32(stack[1])
+			stack[0] = EncodeI32(a * b)
+		},
+		[]ValueType{ValueTypePTR, ValueTypePTR},
+		[]ValueType{ValueTypePTR},
+	)
+
+	var ok bool
+	if plugin, ok = pluginInstance(t, manifest, mult); ok {
+		defer plugin.Close(context.Background())
+
+		for i := 0; i < 2; i++ {
+			inner = nil
+			exit, output, err := plugin.Call("run_test", []byte{})
+			if assertCall(t, err, exit) {
+				assert.Equal(t, "42 x 2 = 84", string(output))
+				assert.Equal(t, "42 x 2 = 84", string(inner))
+			}
+		}
 	}
 }
 
