@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -529,22 +530,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			panic(fmt.Errorf("invalid url: %v", err))
 		}
 
-		// deny all requests by default
-		hostMatches := false
-		for _, allowedHost := range plugin.AllowedHosts {
-			if allowedHost == url.Hostname() {
-				hostMatches = true
-				break
-			}
-
-			pattern := glob.MustCompile(allowedHost)
-			if pattern.Match(url.Hostname()) {
-				hostMatches = true
-				break
-			}
-		}
-
-		if !hostMatches {
+		if !hostAllowed(plugin.AllowedHosts, url.Hostname()) {
 			panic(fmt.Errorf("HTTP request to '%v' is not allowed", request.Url))
 		}
 
@@ -569,7 +555,7 @@ func httpRequest(ctx context.Context, m api.Module, requestOffset uint64, bodyOf
 			req.Header.Set(key, value)
 		}
 
-		client := http.DefaultClient
+		client := newHTTPClient(plugin.AllowedHosts)
 		resp, err := client.Do(req)
 		if err != nil {
 			panic(err)
@@ -691,4 +677,42 @@ func EncodeF64(input float64) uint64 {
 // See EncodeF64
 func DecodeF64(input uint64) float64 {
 	return api.DecodeF64(input)
+}
+
+// hostAllowed reports whether host matches one of the allowed hosts.
+// All requests are denied if allowedHosts is empty.
+func hostAllowed(allowedHosts []string, host string) bool {
+	for _, allowedHost := range allowedHosts {
+		if allowedHost == host {
+			return true
+		}
+
+		pattern := glob.MustCompile(allowedHost)
+		if pattern.Match(host) {
+			return true
+		}
+	}
+	return false
+}
+
+// newHTTPClient returns a copy of http.DefaultClient that also checks every
+// redirect target against allowedHosts, so a redirect cannot reach a host
+// that is not allowed.
+func newHTTPClient(allowedHosts []string) *http.Client {
+	client := *http.DefaultClient
+	checkRedirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !hostAllowed(allowedHosts, req.URL.Hostname()) {
+			return fmt.Errorf("HTTP request to '%v' is not allowed", req.URL)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		// same limit as the default client
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &client
 }
